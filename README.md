@@ -757,26 +757,7 @@ The MVP can run offline, while the architecture provides clear paths to Qdrant, 
 
 ---
 
-## Roadmap
 
-- Improve coverage of current Vietnamese legal documents
-- Add stronger temporal legal reasoning
-- Improve legal relationship extraction
-- Add better multilingual and Vietnamese-specific embedding evaluation
-- Introduce stronger LLM-based claim verification
-- Expand regression datasets
-- Add automated corpus freshness checks
-- Improve observability and cost tracking
-- Add production authentication and rate limiting
-- Benchmark retrieval and generation across multiple LLMs
-
----
-
-## License
-
-Add the project's license here before public release.
-
----
 
 ## Acknowledgements
 
