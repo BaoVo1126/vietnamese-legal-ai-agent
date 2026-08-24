@@ -6,9 +6,11 @@ The system combines **hybrid retrieval, reranking, a Legal Knowledge Graph, Lang
 
 > **Disclaimer:** This project is an information-retrieval and research system. It does not replace legal advice from a qualified lawyer or an authorized government agency.
 
+**Live Demo:** [Add demo link here](YOUR_DEMO_LINK)
+
 ---
 
-## Overview
+## 1. Overview
 
 Legal question answering is harder than ordinary document search.
 
@@ -26,7 +28,7 @@ The result is a controlled RAG workflow designed around **traceability, correctn
 
 ---
 
-## Key Features
+## 2. Key Features
 
 - Structure-aware parsing of Vietnamese legal documents
 - Legal hierarchy extraction: Document → Chapter → Section → Article → Clause → Point
@@ -53,7 +55,7 @@ The result is a controlled RAG workflow designed around **traceability, correctn
 
 ---
 
-## System Architecture
+## 3. System Architecture
 
 The architecture separates **offline knowledge preparation** from the **online agent workflow**.
 
@@ -116,7 +118,7 @@ Instead, it treats retrieval quality, legal validity, and citation correctness a
 
 ---
 
-## Agent Responsibilities
+## 4. Agent Responsibilities
 
 | Component | Responsibility |
 |---|---|
@@ -132,7 +134,7 @@ Retrieval retries are bounded by `MAX_RETRIEVAL_ATTEMPTS`, preventing uncontroll
 
 ---
 
-## Design Thinking
+## 5. Design Thinking
 
 ### Why not use vector search alone?
 
@@ -225,7 +227,7 @@ This makes reliability a system-level property rather than only a prompt-level i
 
 ---
 
-## Project Structure
+## 6. Project Structure
 
 ```text
 AIAgent_phapluatVN/
@@ -278,7 +280,7 @@ AIAgent_phapluatVN/
 
 ---
 
-## Tech Stack
+## 7. Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -299,7 +301,7 @@ AIAgent_phapluatVN/
 
 ---
 
-## Quick Start
+## 8. Quick Start
 
 The repository includes an **MVP profile** that can run without a GPU, external LLM, Qdrant server, or Neo4j server.
 
@@ -359,7 +361,7 @@ This keeps the first run local and deterministic.
 
 ---
 
-## Build the Knowledge Base
+## 9. Build the Knowledge Base
 
 For the included priority corpus:
 
@@ -393,7 +395,7 @@ Build Knowledge Graph
 
 ---
 
-## Run the Web Application
+## 10. Run the Web Application
 
 Start Streamlit:
 
@@ -418,7 +420,7 @@ The UI provides:
 
 ---
 
-## Run the REST API
+## 11. Run the REST API
 
 Start FastAPI:
 
@@ -445,7 +447,7 @@ curl -X POST http://localhost:8080/ask \
 
 ---
 
-## Ask from the CLI
+## 12. Ask from the CLI
 
 ```bash
 python scripts/ask_cli.py "What are the requirements for establishing an enterprise?"
@@ -453,7 +455,7 @@ python scripts/ask_cli.py "What are the requirements for establishing an enterpr
 
 ---
 
-## Production Configuration
+## 13. Production Configuration
 
 The production-shaped architecture uses:
 
@@ -514,7 +516,7 @@ python scripts/run_ingestion.py
 
 ---
 
-## Evaluation
+## 14. Evaluation
 
 The project treats evaluation as part of the system rather than an afterthought.
 
@@ -558,7 +560,7 @@ Citing an expired legal document when a current document should be used is treat
 
 ---
 
-## Testing
+## 15. Testing
 
 Run fast tests:
 
@@ -597,7 +599,7 @@ The test suite covers:
 
 ---
 
-## Failure Diagnosis
+## 16. Failure Diagnosis
 
 When an answer is incorrect, the project does not immediately change the prompt.
 
@@ -638,7 +640,7 @@ This separation makes debugging more systematic and prevents unnecessary changes
 
 ---
 
-## Monitoring
+## 17. Monitoring
 
 Each request can be logged to:
 
@@ -672,7 +674,7 @@ LANGSMITH_PROJECT=legal-agent-vn
 
 ---
 
-## CI/CD
+## 18. CI/CD
 
 The repository includes GitHub Actions for:
 
@@ -696,7 +698,7 @@ This turns evaluation into a release-quality gate rather than a manual experimen
 
 ---
 
-## Current MVP Scope
+## 19. Current MVP Scope
 
 The project contains Vietnamese legal documents covering multiple domains, including:
 
@@ -714,7 +716,7 @@ The evaluation suite contains both domain-specific regression cases and explicit
 
 ---
 
-## Limitations
+## 20. Limitations
 
 This project is designed as an engineering research system, so several limitations remain:
 
@@ -727,7 +729,7 @@ This project is designed as an engineering research system, so several limitatio
 
 ---
 
-## Engineering Principles
+## 21. Engineering Principles
 
 The project follows several principles that guide future development:
 
@@ -757,9 +759,13 @@ The MVP can run offline, while the architecture provides clear paths to Qdrant, 
 
 ---
 
+## 22. License
 
+Add the project's license here before public release.
 
-## Acknowledgements
+---
+
+## 23. Acknowledgements
 
 This project uses open-source technologies including LangGraph, LangChain, Qdrant, Neo4j, FastAPI, Streamlit, PyTorch ecosystem models, and related open-source tooling.
 
