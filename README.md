@@ -759,13 +759,7 @@ The MVP can run offline, while the architecture provides clear paths to Qdrant, 
 
 ---
 
-## 22. License
-
-Add the project's license here before public release.
-
----
-
-## 23. Acknowledgements
+## 22. Acknowledgements
 
 This project uses open-source technologies including LangGraph, LangChain, Qdrant, Neo4j, FastAPI, Streamlit, PyTorch ecosystem models, and related open-source tooling.
 
