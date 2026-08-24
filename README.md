@@ -1,238 +1,450 @@
-# 🤖 AI Agents with Hybrid RAG
+# Trợ lý Hỏi-Đáp Pháp Luật Việt Nam — AI Agent Pipeline
 
-**A framework-agnostic AI agent that answers questions from any document you give it — in English or Vietnamese, with citations, refusing rather than guessing — benchmarking four reasoning strategies side by side over multilingual BM25 + FAISS hybrid retrieval, with Postgres/Redis behind the chat history and an n8n orchestration layer for automation.**
+Hệ thống RAG đa tác tử (multi-agent) cho pháp luật Việt Nam, xây dựng quanh hai nguyên
+tắc bất biến:
 
-![status](https://img.shields.io/badge/tests-254%20passing-brightgreen) ![python](https://img.shields.io/badge/python-3.11%2B-blue) ![cost](https://img.shields.io/badge/real--mode-free%20(Ollama)-success) ![infra](https://img.shields.io/badge/storage-Postgres%20%2B%20Redis-336791) ![streaming](https://img.shields.io/badge/API-SSE%20streaming-informational) ![retrieval](https://img.shields.io/badge/retrieval-BM25%20%2B%20FAISS%20multilingual-informational) ![orchestration](https://img.shields.io/badge/orchestration-n8n-EA4B71)
+- **Grounded-or-refuse** — chỉ trả lời từ đoạn luật đã truy xuất; không đủ căn cứ thì
+  từ chối, không suy diễn.
+- **Version-aware** — mọi trích dẫn đều được đối chiếu hiệu lực qua Legal Knowledge
+  Graph trước khi đưa vào câu trả lời.
 
-🔗 **Live demo:** https://ai-agent-hybrid-rag.onrender.com/
-
-🧩 **Algorithmic foundation:** the self-correcting RAG strategy below started as a standalone, easier-to-read reference implementation — see [`local-agentic-rag`](https://github.com/BaoVo1126/local-agentic-rag) — before being reimplemented here against this repo's `AgentStrategy` interface, alongside three other reasoning strategies.
+Mỗi câu trả lời bắt buộc kèm trích dẫn chuẩn `Điều – Khoản – Điểm + Số hiệu văn bản`
+và disclaimer cố định.
 
 ---
 
-## 📌 What this is
+## 1. Kiến trúc
 
-Drop a PDF/TXT/MD file in, ask questions through a web UI, CLI, API, or an n8n workflow — the agent retrieves the relevant passages, reasons about the answer, and (in its most advanced mode) **checks its own answer for hallucination before returning it**, retrying automatically if it's wrong. Runs fully offline with zero setup in mock mode, or against a real, free, local model via [Ollama](https://ollama.com) with one environment variable. Retrieval defaults to BM25 fused with a real dense FAISS index for accurate semantic search, and documents are split with a paragraph/sentence-aware `RecursiveCharacterTextSplitter` instead of a fixed word count.
+### Pipeline A — Offline: Ingestion & Knowledge Base
 
-## ✨ What it does
+```
+văn bản thô (.txt/.json/HF dataset)
+   └─► StructureAwareParser      Văn bản → Chương → Mục → Điều → Khoản → Điểm
+        └─► MetadataExtractor    số hiệu, loại VB, cơ quan, ngày/trạng thái hiệu lực
+             └─► RelationExtractor   THAY_THE / SUA_DOI / HUONG_DAN / BAI_BO / CAN_CU
+                  ├─► LegalChunkBuilder ──► Qdrant (dense) + BM25 (sparse)
+                  └─► KnowledgeGraphBuilder ──► Neo4j hoặc MemoryGraphStore (JSON)
+```
 
-- 🧠 **Four interchangeable reasoning strategies** over the same tools — ReAct, native function-calling, plan-and-execute, and the **self-correcting RAG agent** that is the default: it grades its own retrieved evidence, re-tries when the answer isn't grounded, falls back to the web, and refuses rather than guessing. The other three are baselines the benchmark measures it against.
-- 🎯 **Structured prompt contracts, not loose text parsing** — the self-correcting RAG agent's graders/verifiers now speak a strict JSON schema (`{"grounded": true|false, "reason": "..."}`) instead of a bare "yes/no" that silently defaulted to a pass on anything unparseable — see [Prompt engineering](#prompt-engineering) below.
-- 🔗 **n8n orchestration layer** — a workflow-level automation layer sitting outside the agent, wiring `/api/upload` + `/api/chat` into webhooks, file-ingestion pipelines, and human-review routing when the agent's self-check flags an answer — see [`n8n/`](n8n/).
-- 🔍 **Hybrid retrieval** — BM25 fused via Reciprocal Rank Fusion with a **FAISS** dense-embedding index (zero extra infrastructure), with an optional cross-encoder reranker on top. Both halves are **multilingual** (English + Vietnamese), a mixed-language corpus is split into one sub-index per language so the smaller corpus is not crowded out of the top-k by the larger one, and BM25 folds Vietnamese diacritics into an extra term so OCR tone damage ("chat"/"chát" for "chất") stops hiding passages from search — worth 1.8x recall on scanned text, measured.
-- 📄 **Format-aware chunking** — the splitter is chosen per document kind, because one strategy cannot serve them all: tables split on row boundaries with the header repeated on every chunk, Markdown splits on headings and carries a section breadcrumb into each chunk, and prose falls back to paragraph -> sentence -> word boundaries. Budgets are counted in **tokens**, not characters, so a Vietnamese document is not chunked far more finely than an English one from the same setting.
-- 🔎 **Reads more than PDFs** — `.pdf .txt .md .csv .tsv .xlsx .docx .html .json .jsonl` plus image files, all through one dispatcher. Extraction that "succeeds" but produces garbled text is rejected and reported rather than silently indexed.
-- 🖼️ **OCR fallback for scanned documents** — a page with no usable text layer is rendered and passed to a pluggable OCR engine (Tesseract by default, PaddleOCR opt-in). OCR runs *only* on pages that fail the quality check, so a clean text-layer PDF costs nothing extra.
-- 💬 **Persistent chat sessions** — full conversation history saved to Postgres, Redis-cached for fast reads.
-- ⚡ **Real-time streaming** — `/api/chat/stream` is true Server-Sent Events; the self-correcting agent streams each retrieval/verify/retry step live as it happens, not after the fact.
-- 🔁 **Ingestion that checks itself** — after every build, a phrase is taken out of each document and searched for, to confirm the document can retrieve its own text (`src/ingestion/verification.py`). A build that finishes without raising says nothing about whether retrieval works, and that is precisely how every retrieval bug in [`docs/bugs-found.md`](docs/bugs-found.md) shipped: a chunk count, exit zero, and a broken index. A failing text-layer PDF can be re-read with OCR forced on, keeping whichever version verifies better.
-- 📊 **Built-in benchmark** — quantitatively compares all four strategies on pass rate, latency, groundedness, and cost — not just a demo, a measurement tool.
-- 🐳 **One-command infra** — `docker compose up` brings up Postgres + Redis for durable chat history alongside the app; `--profile with-n8n` adds the orchestration layer.
+### Pipeline B — Online: LangGraph Multi-Agent
 
-## 🛠️ Tech stack
+```
+          ┌─────────┐
+          │ router  │──(ngoài phạm vi)───────────────┐
+          └────┬────┘                                │
+               ▼                                     │
+        ┌──────────┐   ┌──────────────┐   ┌──────────▼───┐
+   ┌───►│ retrieve │──►│ kg_validate  │──►│    verify    │
+   │    └──────────┘   └──────────────┘   └──┬────────┬──┘
+   │      ▲ self-correction (rewrite query)  │        │ đủ căn cứ
+   │      └──────────────────────────────────┘        ▼
+   │                                             ┌────────┐
+   │                                             │ answer │
+   │                                             └───┬────┘
+   │                                    ┌────────────▼────────┐
+   └──────────(gate thất bại)───────────│   citation_check    │──► END
+                                        └──────────┬──────────┘
+                                                   │ hết lượt thử
+                                              ┌────▼───┐
+                                              │ refuse │──► END
+                                              └────────┘
+```
 
-| Layer | Tools |
+| Node | Vai trò |
 |---|---|
-| Agent orchestration | Custom `AgentStrategy` interface — self-correcting RAG (default) plus ReAct / function-calling / plan-execute as benchmark baselines |
-| Prompt engineering | `src/agents/prompts.py` — role + output-contract system prompts, separated from loop control flow |
-| LLM | [Ollama](https://ollama.com) (`qwen2.5:7b`, local & free — chosen over llama3.1, which misspells Vietnamese even when merely copying the question into a tool call) — dual-mode with a deterministic offline mock for CI |
-| Retrieval | BM25 (Unicode + Vietnamese diacritic folding) + FAISS dense embeddings (`sentence-transformers`, multilingual), RRF fusion, per-language sub-indexes, optional cross-encoder reranking |
-| Ingestion | PyMuPDF text extraction + table detection, pandas/python-docx/stdlib loaders, Tesseract/PaddleOCR fallback (`ingestion/loaders.py`, `ingestion/ocr.py`) |
-| Chunking | Per-format splitter router, token-based budgets via `tiktoken` (`ingestion/chunking.py`) |
-| Vector storage | FAISS, persisted as a fingerprinted pickle that refuses to load when `data/` or the chunking/embedding settings have changed |
-| Chat history | **Postgres**, **Redis** read-cache |
-| API | **FastAPI**, Server-Sent Events streaming |
-| Workflow orchestration | **n8n** — webhook → ingest → ask-agent → route-on-confidence (`n8n/document_qa_workflow.json`) |
-| Frontend | Vanilla JS chat console with a live reasoning-trace view |
-| Testing | Pytest — 254 tests (unit / integration / regression), including nineteen real bugs caught by testing against a genuinely fresh environment and against a real model |
+| `router` | Phân loại intent, viết lại query, tách sub-query, bắt số hiệu/số Điều |
+| `retrieve` | BM25 + dense song song → **RRF** → cross-encoder rerank; nạp thẳng Điều được hỏi đích danh |
+| `kg_validate` | Lọc văn bản hết hiệu lực; mở rộng multi-hop sang VB hướng dẫn/thay thế |
+| `verify` | Chấm `grounding_score`; yếu → viết lại query và quay lại `retrieve` |
+| `answer` | Sinh câu trả lời **chỉ** từ evidence, kèm trích dẫn chuẩn |
+| `citation_check` | Chốt chặn: audit trích dẫn (deterministic) + kiểm chứng claim nguyên tử |
+| `refuse` | Nhánh từ chối có giải thích lý do + liệt kê điều khoản bị loại vì hiệu lực |
 
-## 🏗️ Architecture
+Mọi vòng lặp đều bị chặn bởi `MAX_RETRIEVAL_ATTEMPTS`; nút `refuse` tiếp cận được từ 3
+vị trí — đó là bảo đảm cấu trúc cho nguyên tắc grounded-or-refuse.
 
-```
-                                    n8n (workflow orchestration)
-                                    webhook → ingest? → ask → route-on-confidence
-                                                    │        ▲
-                                                    ▼        │
-data/*.pdf,csv,docx,… → ingestion (extract → OCR → chunk → verify it can be found again)
-                                                            │
-                                    retrieval (BM25 + diacritic folding ⊕ FAISS multilingual,
-                                               RRF, one sub-index per language)
-                                                            │
-                                  tools/ (document_search, web_search, calculator, summarize)
-                                                            │
-                     ┌───────────────┬───────────────┬──────┴──────────┐
-                     ▼               ▼               ▼                 ▼
-                  ReAct        Function-calling  Plan & execute   Self-correcting RAG ★
-                     └── benchmark baselines ────┘                 (the default)
-                                                             │
-                                          agents/prompts.py (role + JSON output contracts)
-                                                             │
-                                                 core/llm_client (Mock ↔ Ollama)
-                                                             │
-                          api/main.py (FastAPI, SSE streaming)  ──▶  Postgres (chat history)
-                                                                                   │                          ▲
-                                                                              web/ (chat UI)          Redis (read cache)
-```
+---
 
-Every agent, tool, and storage backend is swappable through abstract interfaces (`src/core/interfaces.py`) — adding a strategy, or moving from a pickle file to a real database, never touches the other layers. That's not a design claim, it's demonstrated: the self-correcting agent, the Postgres/Redis chat-history layer, the FAISS retrieval backend and the per-language routing layer were all added after the original three-strategy version, with zero changes to the agents or API that didn't need them — `RoutedRetriever` implements the exact same `.search(query, top_k)` interface as the retriever it wraps, so every agent strategy, the API, the CLI and the benchmark work with it unmodified. n8n follows the same principle from the outside: it's one more caller of `/api/chat`, not a rewrite of the agent loop.
-
-## <a name="prompt-engineering"></a>🧠 Prompt engineering & system directives
-
-The self-correcting RAG agent's accuracy depends entirely on its graders and verifiers judging correctly — and the original version asked for a bare "yes" or "no" in free text, parsed with a regex that **defaulted to a pass (`True`) whenever the model's response didn't match cleanly**. That's a silently optimistic failure mode: any hedge, caveat, or off-format response from the model waved a passage or answer through instead of being caught as a real failure.
-
-Following the same separation used in [`AI_AGENT_FROM_ZERO`](https://github.com/breslee1707/AI_AGENT_FROM_ZERO) (prompts kept in their own module, tool/output shape stated explicitly rather than implied), `src/agents/prompts.py` now gives each grader/verifier:
-
-- **An explicit ROLE line** — what kind of judge it is, before the task.
-- **A strict output contract** — a one-line JSON object with a fixed schema (`{"grounded": true|false, "reason": "..."}`), not a word the model has to guess the exact phrasing of.
-- **Fail-closed parsing** — `_parse_verdict()` in `self_correcting_rag_agent.py` only accepts a clean match against that schema (with a loose yes/no fallback for the mock LLM's canned test phrasing); anything else is now treated as the check **failing**, not passing.
-
-This directly targets the "accuracy still very low" symptom: a low-accuracy self-correcting loop is often not a retrieval problem, it's the *grader itself* rubber-stamping bad passages/answers because its own output wasn't being parsed reliably.
-
-## 🎯 The answering contract
-
-Three of the four strategies in `src/agents/` are **benchmark baselines** —
-they exist so the trade-offs between reasoning loops stay measurable. One is
-the production path, and it is what a caller gets by default:
-`self_correcting_rag` (`src/agents/self_correcting_rag_agent.py`).
-
-Search → Understand & Reason → Check Itself → Answer with sources, under five
-promises the other three do not make:
-
-| Promise | Why it exists |
-|---|---|
-| **Answers in the language it was asked in** | An English system prompt reliably drags a model into answering a Vietnamese question in English. That is a failed answer even when every fact in it is correct — the person asking chose Vietnamese for a reason. The language is detected from the query with a character/stopword check (no model call) and selects a prompt written *in* that language. |
-| **Refuses, exactly and detectably** | When no retrieved passage survives grading, the pipeline emits one constant sentence — `Xin lỗi, tôi không tìm thấy thông tin chính xác trong tài liệu.` / `Sorry, I could not find accurate information in the documents.` — so a caller can recognise a refusal by string comparison instead of parsing prose. The older strategy answered from the raw top results in that case, removing the guard in precisely the situation where a hallucination is most likely. |
-| **Cites sources that exist** | Passages are numbered `[Source 1..N]` in the context *before* the prompt asks for tags — a prompt cannot ask for `[Source 2]` unless something is labelled Source 2. An answer citing a number that was never supplied is rejected: a fabricated citation is a hallucination wearing the costume of evidence, which makes it worse than an uncited claim, not better. |
-| **Shows the model whole passages** | No truncation anywhere in the context builder. |
-| **Falls back to the web, last** | When the documents and every retry have failed, `web_search` (DuckDuckGo, no API key) runs on the *original* question — rewrites are tuned to this corpus's vocabulary and searching the open web with them looks for the wrong thing. Web results are labelled with their URL and the answer is prefixed with a notice, because an answer that silently mixes document and web evidence is worse than either alone. A web answer passes the same self-check: search snippets are, if anything, easier to over-read than a retrieved passage, since they are already written as summaries. |
-
-An answer that fails its own self-check is **not** shipped with an
-`[unverified]` caveat — it becomes a web answer, or a refusal. A caveated
-answer still reads as an answer, and is the shape a hallucination most easily
-survives in.
-
-**Cost matters as much as correctness here.** Relevance grading judges all
-retrieved candidates in one LLM call, not one call each. Per-passage grading
-was correct and unaffordable: measured against `qwen2.5:7b` on CPU at 8.5 s a
-call, twelve candidates meant 102 seconds of filtering before the model wrote
-a word of the answer — times up to three self-correction attempts. Every unit
-test passed throughout, because a mock answers instantly and cannot tell one
-call from twelve. That is why an end-to-end run against the real model is part
-of the workflow and not an optional extra.
-
-### It works end to end, measured
-
-A Vietnamese question against a **scanned** textbook -- 147 pages, zero
-characters of embedded text, recovered by OCR:
-
-```
-Q  Ở nhiệt độ thường chất béo tồn tại ở trạng thái nào?
-A  Ở nhiệt độ thường, chất béo tồn tại ở trạng thái lỏng hoặc rắn [Source 1].
-   [Source 1] = data/sgk_hoa12.pdf, page 13        (4 LLM calls, 0 retries)
-```
-
-Answered in the language it was asked in, with a citation that resolves to a
-real page, and correct against the book. Retrieval `hit@4` on a six-probe set
-spanning both documents and both languages is **6/6**
-(`python scripts/diagnose_retrieval.py`) -- including a probe deliberately
-typed without diacritics, which the pre-fix pipeline could not match at all.
-
-### Measuring it: `RUN_EVAL`
-
-Prefixing a query with `RUN_EVAL` runs the pipeline and returns a JSON verdict
-instead of the answer:
-
-```json
-{"query": "...", "answer": "...", "refused": false,
- "faithfulness": 1, "answer_relevance": 1, "context_precision": 1}
-```
-
-The three metrics are judged by three separate calls, not one call returning
-three fields — a small local model asked for three booleans at once decides
-"good" or "bad" once and fills all three to match, destroying the distinction
-they exist to draw. Kept separate, they point at different fixes:
-
-- `context_precision = 0` → **the retriever missed.** Changing the prompt or the model will not help.
-- `context_precision = 1, faithfulness = 0` → **the evidence arrived and the model ignored it.** Changing retrieval will not help.
-- `answer_relevance = 0` → the model answered a different question than the one asked.
-
-A refusal scores faithful, context-imprecise, and not relevant — declining to
-answer without evidence is the pipeline working, and an eval that scored it as
-a hallucination would push the system back towards guessing.
-
-## 🔗 n8n orchestration layer
-
-`n8n/document_qa_workflow.json` puts a workflow-level automation layer **outside** the agent: a webhook receives a question (and optionally a file to ingest), calls `/api/upload` if needed, calls `/api/chat`, and routes the result — including notifying a human reviewer when the agent's own self-check flags the answer as `unverified`. The agent's reasoning loop stays exactly where it is; n8n only ever talks to it over HTTP, the same way the CLI, web UI, and benchmark do. See [`n8n/README.md`](n8n/README.md) for the full design rationale and setup steps.
+## 2. Chạy thử trong 60 giây (profile MVP, offline hoàn toàn)
 
 ```bash
-docker compose --profile with-n8n up -d
-# n8n UI at http://localhost:5678 — import n8n/document_qa_workflow.json
+pip install -r requirements.txt          # hoặc: pip install -e ".[dev,nlp]"
+cp .env.example .env                     # mặc định đã là profile mvp
+
+python scripts/ingest_priority.py         # nạp văn bản nền tảng từ corpus HF
+python scripts/run_ui.py                  # Web UI  -> http://localhost:8501
+python scripts/run_api.py --port 8080     # REST API -> http://localhost:8080/docs
+python scripts/diagnose.py                # chẩn đoán 4 tầng lỗi (a/b/c/d)
+python scripts/verify_goldens.py          # đối chiếu nhãn vàng với văn bản gốc
+python scripts/run_eval.py --regression --diagnose-failures
+pytest                                    # 82 test nhanh
+pytest -m slow                            # 5 test tích hợp trên corpus thật
 ```
 
-## 🚀 Quickstart
+Web UI có 4 tab: **Hỏi đáp** (chat, hiện đầy đủ bằng chứng + trace), **Giám sát**
+(chỉ số vận hành đọc từ run log), **Đánh giá** (chạy golden set ngay trên giao diện),
+**Kho văn bản** (tra cứu hiệu lực trực tiếp trên Knowledge Graph).
+
+Profile `mvp` không cần GPU, không cần tải model, không cần Qdrant/Neo4j server:
+Qdrant chạy in-memory, KG lưu JSON, embedder/reranker/LLM dùng bản stub tất định.
+
+Ví dụ gọi API:
 
 ```bash
-git clone <this-repo> && cd ai-agent-hybrid-rag
-pip install -r requirements.txt
-
-cp "/path/to/your.pdf" data/
-python scripts/build_index.py
-uvicorn src.api.main:app --reload   # open http://localhost:8000
+curl -X POST http://localhost:8080/ask -H "Content-Type: application/json" -d '{
+  "question": "Nghị định nào đang hướng dẫn Điều 26 của Luật Doanh nghiệp 59/2020/QH14 và còn hiệu lực?",
+  "include_trace": true
+}'
 ```
 
-Runs fully offline out of the box (`faiss-cpu`/`sentence-transformers` are in `requirements.txt` by default now, for the FAISS retrieval backend). For a real model (free): install [Ollama](https://ollama.com), `ollama pull qwen2.5:7b`, set `LLM_BACKEND=ollama`. For durable chat history: `docker compose up -d postgres redis`, set `CHAT_HISTORY_BACKEND=postgres` — see [Production upgrade](#production-upgrade) below. For workflow orchestration: `docker compose --profile with-n8n up -d`.
+---
 
-## <a name="production-upgrade"></a>🐳 Production upgrade: real storage, not just a demo
+## 3. Cấu trúc thư mục
 
-| | Dev default (zero setup) | Production |
+```
+AIAgent_phapluatVN/
+├── src/legal_agent/
+│   ├── config.py                  # Settings (pydantic-settings), 1 nguồn cấu hình duy nhất
+│   ├── logging_config.py
+│   ├── domain/                    # tầng thuần dữ liệu, không phụ thuộc hạ tầng
+│   │   ├── enums.py               # DocumentType, EffectStatus, RelationType, NodeLevel, QueryIntent
+│   │   ├── citation.py            # Citation: render / parse / covers / parse_cited
+│   │   ├── document.py            # LegalDocumentMeta, LegalRelation, status_as_of()
+│   │   ├── node.py                # LegalNode - cây cấu trúc văn bản
+│   │   └── chunk.py               # LegalChunk (đơn vị trích dẫn), RetrievedChunk
+│   ├── ingestion/                 # ── MODULE 1 ──
+│   │   ├── patterns.py            # toàn bộ regex tiếng Việt + chuẩn hoá Unicode
+│   │   ├── parser.py              # StructureAwareParser (state machine + ancestor stack)
+│   │   ├── metadata_extractor.py  # số hiệu, tiêu đề, cơ quan, ngày & trạng thái hiệu lực
+│   │   ├── relation_extractor.py  # khai thác quan hệ văn bản → cạnh của KG
+│   │   ├── chunker.py             # cắt theo Điều/Khoản, không bao giờ cắt giữa Điểm
+│   │   ├── loaders.py             # .txt / .json / .jsonl / HuggingFace dataset
+│   │   └── pipeline.py            # IngestionPipeline: parse → KG → index
+│   ├── indexing/
+│   │   ├── tokenizer.py           # tách từ tiếng Việt (underthesea/pyvi) cho BM25
+│   │   ├── embedder.py            # vnlegal-lal / bge-m3 + HashingEmbedder (offline)
+│   │   ├── bm25_index.py          # BM25Okapi + pickle sidecar
+│   │   └── qdrant_store.py        # collection, payload filter theo hiệu lực, tra cứu theo Điều
+│   ├── kg/
+│   │   ├── base.py                # LegalGraphStore Protocol + GraphVerdict
+│   │   ├── memory_store.py        # backend MVP (JSON snapshot)
+│   │   ├── neo4j_store.py         # backend production (Cypher)
+│   │   └── builder.py             # cạnh nghịch đảo + suy luận lan truyền hết hiệu lực
+│   ├── retrieval/
+│   │   ├── hybrid.py              # HybridRetriever + Reciprocal Rank Fusion
+│   │   └── reranker.py            # bge-reranker-v2-m3 + stub theo độ phủ từ vựng
+│   ├── llm/
+│   │   ├── base.py                # LLMClient Protocol, JSON recovery
+│   │   ├── prompts.py             # toàn bộ prompt (router/answer/verifier/claim)
+│   │   ├── vllm_client.py         # vLLM qua API OpenAI-compatible
+│   │   └── stub_client.py         # LLM tất định để chạy/kiểm thử offline
+│   ├── agents/                    # ── MODULE 2 ──
+│   │   ├── state.py               # AgentState + trace append-only
+│   │   ├── nodes/                 # router, retrieval, kg_validator, verifier,
+│   │   │                          # answer, citation_checker, refusal
+│   │   ├── edges.py               # toàn bộ policy điều hướng (conditional edges)
+│   │   ├── graph.py               # lắp ráp & compile LangGraph
+│   │   └── service.py             # LegalAgentService: bootstrap + ask()
+│   ├── monitoring/                # ── MONITOR ──
+│   │   ├── run_logger.py          # ghi 1 dòng JSONL mỗi lượt hỏi + đo thời gian
+│   │   ├── metrics.py             # tổng hợp refusal/retry rate, latency p50/p95 theo node
+│   │   └── tracing.py             # bật/kiểm tra cấu hình LangSmith
+│   ├── evaluation/                # ── EVAL ──
+│   │   ├── dataset.py             # schema golden set + loader
+│   │   ├── metrics.py             # retrieval/citation recall, precision, stale rate
+│   │   └── runner.py              # chạy bộ case -> báo cáo JSON + Markdown
+│   └── api/
+│       ├── main.py                # FastAPI app + lifespan warm-up
+│       ├── deps.py, schemas.py
+│       └── routers/               # /ask, /health, /metrics, /runs, /admin
+├── app/streamlit_app.py           # ── WEB UI ── 4 tab
+├── scripts/                       # run_ui, run_api, run_ingestion, run_eval, ask_cli
+├── tests/                         # 80 test (75 nhanh + 5 tích hợp)
+├── data/
+│   ├── raw/                       # 3 văn bản mẫu của MVP
+│   └── eval/golden_set.jsonl      # 10 case đánh giá
+├── .github/workflows/             # ci.yml (lint/test/eval/docker) + deploy.yml
+├── docker/                        # Dockerfile + compose (Qdrant + Neo4j + API + UI)
+└── render.yaml
+```
+
+---
+
+## 4. Quyết định thiết kế đáng chú ý
+
+**Không chunk theo số ký tự.** Đơn vị chunk là Khoản (hoặc cả Điều nếu không có Khoản).
+Một chunk cắt ngang hai Khoản thì không thể trích dẫn, mà chunk không trích dẫn được thì
+vô dụng với hệ grounded-or-refuse. Khoản quá dài chỉ được cắt tại ranh giới Điểm.
+
+**Ngữ cảnh cha tách khỏi nội dung.** `context_header` (văn bản > chương > mục > điều +
+câu dẫn) chỉ được ghép vào khi *embed*; văn bản hiển thị và văn bản đem đi kiểm chứng
+vẫn là nguyên văn điều luật.
+
+**Phân biệt ngữ cảnh khi parse.** `1.` chỉ mở Khoản khi đang mở một Điều; `a)` chỉ mở
+Điểm khi đang ở trong Khoản/Điều. Nhờ vậy danh sách đánh số ở phần mở đầu không phá cây.
+
+**RRF thay vì nội suy điểm số.** Điểm BM25 và cosine không cùng thang đo; RRF chỉ dùng
+*thứ hạng* nên không cần hiệu chỉnh theo từng corpus.
+
+**Audit trích dẫn là deterministic, không nhờ LLM.** Chỉ các trích dẫn nằm trong ngoặc
+đơn (đúng định dạng prompt bắt buộc) mới bị audit — số hiệu xuất hiện *bên trong đoạn
+luật được trích* là dẫn chiếu của luật, không phải khẳng định thẩm quyền của trợ lý.
+Trích dẫn không khớp evidence ⇒ trượt gate ngay, không cần model.
+
+**Bằng chứng nạp thêm qua KG cũng phải qua bộ lọc hiệu lực.** Một chuỗi quan hệ có thể
+dẫn tới văn bản cũng đã hết hiệu lực; đi vòng qua graph không được trở thành đường tránh
+kiểm tra phiên bản.
+
+**Mọi thành phần nặng đều có stub tất định.** Toàn bộ graph chạy và test được offline,
+không GPU, không tải model — đổi backend chỉ bằng biến môi trường.
+
+---
+
+## 5. Cấu hình (biến môi trường chính)
+
+| Biến | MVP | Production | Ghi chú |
+|---|---|---|---|
+| `APP_PROFILE` | `mvp` | `prod` | |
+| `LLM_BACKEND` | `stub` | `openai_compatible` | trỏ `LLM_BASE_URL` tới vLLM |
+| `LLM_MODEL` | – | `Qwen/Qwen2.5-7B-Instruct` | |
+| `EMBEDDING_BACKEND` | `stub` | `sentence_transformers` | `darklethelong/vnlegal-lal`, fallback `BAAI/bge-m3` |
+| `RERANKER_BACKEND` | `stub` | `flag_embedding` | `BAAI/bge-reranker-v2-m3` |
+| `QDRANT_MODE` | `memory` | `server` | |
+| `GRAPH_BACKEND` | `memory` | `neo4j` | |
+| `MAX_RETRIEVAL_ATTEMPTS` | `2` | `2` | trần vòng lặp self-correction |
+| `GROUNDING_THRESHOLD` | `0.6` | `0.6` | ngưỡng của `verify` |
+| `CLAIM_SUPPORT_THRESHOLD` | `0.6` | `0.6` | ngưỡng của post-hoc gate |
+
+Chuyển sang production:
+
+```bash
+vllm serve Qwen/Qwen2.5-7B-Instruct --max-model-len 8192 --port 8000
+docker compose -f docker/docker-compose.yml up -d      # Qdrant + Neo4j + API
+python scripts/run_ingestion.py                        # nạp KB vào server thật
+```
+
+---
+
+## 6. Phạm vi MVP & dữ liệu
+
+MVP đóng gói trọn vẹn lĩnh vực **Luật Doanh nghiệp** với 3 văn bản trong `data/raw/`:
+
+| Văn bản | Trạng thái | Vai trò trong demo |
 |---|---|---|
-| Chat history | in-process dict, lost on restart | **Postgres**, read-cached through **Redis** |
-| Index | FAISS pickle, rebuilt from `data/` | same — fingerprinted, so a stale one is rebuilt rather than served |
-| Streaming | same endpoint | real **SSE** (`text/event-stream`) |
-| Orchestration | direct API calls | optional **n8n** workflows (`--profile with-n8n`) |
+| Luật Doanh nghiệp 59/2020/QH14 | còn hiệu lực | văn bản gốc |
+| Nghị định 01/2021/NĐ-CP | còn hiệu lực | `HUONG_DAN` Điều 26 → test multi-hop |
+| Luật Doanh nghiệp 68/2014/QH13 | hết hiệu lực | bị `THAY_THE` → test version-aware |
+
+Ba văn bản này phủ đủ cả ba loại quan hệ cần thiết để chứng minh pipeline. Thêm lĩnh vực
+mới chỉ cần bỏ file `.txt` vào `data/raw/` rồi chạy lại `scripts/run_ingestion.py` —
+không phải sửa code. File nguồn có thể khai báo front-matter để ghim metadata:
+
+```
+---
+effect_status: het_hieu_luc
+expiry_date: ngày 01 tháng 01 năm 2021
+---
+```
+
+---
+
+## 7. Kiểm thử
 
 ```bash
-docker compose up -d postgres redis
-export CHAT_HISTORY_BACKEND=postgres
-export POSTGRES_DSN="postgresql+psycopg2://agentlab:agentlab@localhost:5432/agentlab"
-export REDIS_URL="redis://localhost:6379/0"
-python scripts/build_index.py
-uvicorn src.api.main:app --reload
+pytest            # 75 test nhanh
+pytest -m slow    # 5 test tích hợp: ingest thật -> hỏi thật -> kiểm trích dẫn thật
+ruff check src tests scripts app
 ```
 
-Redis is a pure cache, not a hard dependency — if it's unreachable, reads just fall back to Postgres directly instead of failing.
+| Nhóm | Nội dung được khoá bằng test |
+|---|---|
+| `test_parser` | cây Chương/Mục/Điều/Khoản/Điểm, bẫy dẫn chiếu "Điều X của Luật này", front-matter, ngày hiệu lực tự chiếu |
+| `test_chunker_citation` | chunk = Khoản, Điểm không bị cắt rời, `parse_cited` bỏ qua số hiệu nằm trong đoạn luật được trích |
+| `test_kg_and_fusion` | lan truyền hết hiệu lực, multi-hop theo Điều, hiệu lực theo mốc thời gian, công thức RRF |
+| `test_agent_graph` | trả lời có căn cứ, từ chối ngoài phạm vi, trần self-correction, chặn trích dẫn bịa, giữ/loại văn bản hết hiệu lực |
+| `test_monitoring` | ghi/đọc run log, cộng dồn latency khi retry, các tỷ lệ tổng hợp |
+| `test_evaluation` | recall/precision trích dẫn, phát hiện trích dẫn hết hiệu lực, chấm ca từ chối |
+| `test_api` | hợp đồng HTTP, từ chối là 200 chứ không phải lỗi |
 
-## 📊 Benchmark: four strategies, measured not asserted
+---
 
-`python scripts/run_benchmark.py` runs every strategy over the same eval set and reports pass rate, latency, LLM/tool call count, and **groundedness** (LLM-as-judge check of whether the answer is actually supported by what it retrieved) side by side. The self-correcting agent trades more LLM calls and latency for measurably higher groundedness — the whole point of the comparison is making that trade-off visible instead of just claiming one strategy is "better."
+## 8. Đánh giá (Eval)
 
-## 🐛 Engineering rigor
+```bash
+python scripts/run_eval.py                  # in báo cáo + lưu JSON/Markdown
+python scripts/run_eval.py --fail-under 0.8 # dùng làm cổng chặn trong CI
+```
 
-Every backend swap in this project (reranker, faiss, chat history) was tested against a **genuinely fresh environment** — an empty database, a missing package — not just the happy path. A second round came from diagnosing bad answers end to end rather than unit-testing components in isolation, which is where the expensive ones were hiding: a BM25 tokenizer that deleted every Vietnamese diacritic, an `EMBEDDING_MODEL` setting nothing read, a `.env` file nothing loaded, and an index that had been stale for weeks with no way to notice. **Nineteen real bugs**, each documented with the exact failure, the fix, and a regression test that locks it in: see [`docs/bugs-found.md`](docs/bugs-found.md).
+Golden set (`data/eval/golden_set.jsonl`) gắn kỳ vọng ở ba tầng cho mỗi câu hỏi:
 
-`python scripts/diagnose_retrieval.py` is the tool that found most of them. It reports what the index actually contains and scores hit@k on a probe set **without involving an LLM**, so "the answer is wrong" can be attributed to retrieval or to generation instead of guessed at.
+```jsonc
+{
+  "case_id": "eval-003-multihop-huong-dan",
+  "question": "Nghị định nào đang hướng dẫn Điều 26 của Luật Doanh nghiệp 59/2020/QH14...",
+  "expected_citations": ["Điều 1, Nghị định 01/2021/NĐ-CP"],   // phải trích dẫn
+  "forbidden_citations": [],                                    // không được trích
+  "expected_status": "answered",                                // trả lời hay từ chối
+  "allow_stale_citations": false                                // được phép dẫn VB hết hiệu lực?
+}
+```
 
-## 📁 Project layout
+Chỉ số và ý nghĩa:
+
+| Chỉ số | Ý nghĩa |
+|---|---|
+| `retrieval_recall` | Điều khoản đúng có vào được pool bằng chứng không — trần trên của mọi chỉ số sau |
+| `citation_recall` | Điều khoản đúng có thực sự được trích dẫn không |
+| `citation_precision` | Mọi trích dẫn phát ra đều có bằng chứng chống lưng |
+| `stale_citation_rate` | **Phải bằng 0** — trích dẫn văn bản hết hiệu lực là lỗi chết người của sản phẩm pháp lý |
+| `status_accuracy` | Trả lời khi cần trả lời, từ chối khi cần từ chối — từ chối được **chấm điểm**, không phải cửa thoát |
+
+Kết quả hiện tại (profile MVP, LLM stub):
 
 ```
-src/
-  core/         interfaces.py (Tool/LLMClient/AgentStrategy ABCs), llm_client.py, config.py
-  ingestion/    loaders (pdf/csv/xlsx/docx/html/json/image), ocr (pluggable engines), quality (readability gate),
-                chunking (per-format splitter router), indexer (memory + faiss), verification (self-retrieval check)
-  retrieval/    bm25 (Unicode + diacritic folding), fusion (RRF), embeddings (multilingual, asymmetric),
-                faiss_store + hybrid_faiss, reranker, language (detection) + routed (per-language sub-index)
-  tools/        document_search, web_search (DuckDuckGo fallback), calculator, summarize, registry
-  agents/       self_correcting_rag (the production contract: bilingual, cited, self-checking,
-                web fallback, refuses when unsupported), react + function_calling + plan_execute
-                (benchmark baselines), critic.py, prompts.py, factory
-  db/           chat session models, Postgres repository
-  cache/        Redis read-cache wrapper
-  evaluation/   eval_dataset, metrics, groundedness, benchmark
-  api/          main.py (FastAPI + SSE), schemas.py
-web/            chat UI + live reasoning-trace console
-n8n/            document_qa_workflow.json + setup/design notes
-scripts/        build_index, run_agent_cli, run_benchmark, run_eval_gate, diagnose_retrieval
-docs/           bugs-found.md
-test/           unit / integration / regression (254 tests)
-docker-compose.yml   Postgres + Redis (chat history) + n8n (optional) + the app
+pass_rate 0.90 · status_accuracy 1.00 · retrieval_recall 1.00
+citation_recall 0.88 · citation_precision 1.00 · stale_citation_rate 0.00
+retry_rate 0.20 · avg_latency 471 ms
 ```
+
+---
+
+## 9. Giám sát (Monitor)
+
+Mỗi lượt hỏi ghi một dòng JSONL vào `data/processed/run_log.jsonl` (append-only, đọc
+được bằng pandas một dòng, đẩy vào log pipeline nào cũng được):
+
+```bash
+curl http://localhost:8080/metrics       # tổng hợp
+curl http://localhost:8080/runs?limit=20 # nhật ký gần nhất
+```
+
+Đo cả *chất lượng* chứ không chỉ độ trễ:
+
+- `refusal_rate` — tăng đột ngột nghĩa là truy xuất/corpus vừa hỏng; **giảm về 0 không
+  phải tin vui**, thường là chốt chặn đã ngừng bắt lỗi.
+- `retry_rate` — proxy trực tiếp cho chất lượng truy xuất lượt đầu.
+- `latency p50/p95` tổng thể **và theo từng node** (đo tại `agents/graph.py:instrument`),
+  nên reranker chậm hay LLM dài dòng lộ ra ngay.
+
+LangSmith là tuỳ chọn, bật bằng biến môi trường (`LANGSMITH_TRACING=true`,
+`LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`); LangGraph tự gửi trace, module `tracing.py`
+chỉ kiểm tra cấu hình để một API key sai báo lỗi ngay lúc khởi động thay vì im lặng.
+
+---
+
+## 10. CI/CD & Deploy
+
+`.github/workflows/ci.yml` — 5 job:
+
+| Job | Nội dung |
+|---|---|
+| `lint` | `ruff check src tests scripts app` |
+| `test` | test nhanh trên Python 3.11 và 3.12 |
+| `integration` | `pytest -m slow` (dựng index thật) |
+| `evaluate` | `run_eval.py --fail-under 0.8` — **build fail nếu chất lượng tụt dưới ngưỡng**, báo cáo được upload làm artifact |
+| `docker` | build image + smoke-test `/live` trong container |
+
+`.github/workflows/deploy.yml` gọi Render deploy hook rồi chờ `/live` xanh (cần secret
+`RENDER_DEPLOY_HOOK` và `SERVICE_URL`).
+
+```bash
+docker compose -f docker/docker-compose.yml up -d   # Qdrant + Neo4j + API + UI
+```
+
+---
+
+## 11. Chẩn đoán bốn tầng lỗi
+
+Một câu trả lời sai chỉ có thể phát sinh ở đúng bốn chỗ, và cách sửa ở mỗi chỗ hoàn toàn
+khác nhau. Đo trước khi sửa là bắt buộc:
+
+| Tầng | Câu hỏi | Nếu hỏng thì sửa ở đâu |
+|---|---|---|
+| **a. corpus** | Văn bản gốc có trong KB chưa? | `scripts/ingest_priority.py` |
+| **b. parse** | Parser có tách đúng Điều chứa đáp án? | `ingestion/parser.py`, `patterns.py` |
+| **c. retrieval** | Chunk đúng có lọt top-k? | `retrieval/hybrid.py`, embedder, reranker |
+| **d. generation** | Có bằng chứng rồi, câu trả lời có dùng đúng? | `agents/nodes/answer.py`, prompt |
+
+```bash
+python scripts/diagnose.py                                  # 2 câu canary
+python scripts/run_eval.py --regression --diagnose-failures # quy mọi case fail về 1 tầng
+```
+
+Tầng đầu tiên hỏng là thủ phạm; mọi tầng sau được đánh dấu `BLOCKED` vì kết quả của
+chúng không còn mang thông tin gì.
+
+---
+
+## 12. Priority ingestion - văn bản nền tảng
+
+Nguồn: `th1nhng0/vietnamese-legal-documents` (171.556 văn bản crawl từ vbpl.vn), gồm
+`metadata`, `content` (HTML) và `relationships`.
+
+Hai quyết định rút ra từ việc **đo**, không phải phỏng đoán:
+
+- **Lọc theo loại văn bản + số hiệu, không lọc theo từ khoá tiêu đề.** Tìm tiêu đề chứa
+  "Xử lý vi phạm hành chính" trả về 340 kết quả mà đa số là Quyết định UBND tỉnh. Văn bản
+  nền tảng chỉ nằm trong `Hiến pháp` (6), `Bộ luật` (17), `Luật` (610).
+- **Metadata của corpus là nguồn chân lý.** Ngày hiệu lực, cơ quan ban hành và trạng thái
+  hiệu lực được ghi vào front-matter của file thô để parser dùng luôn. Bản trích đoạn tự
+  soạn trước đây ghi Nghị định 01/2021/NĐ-CP là "còn hiệu lực", trong khi corpus ghi
+  **"Hết hiệu lực toàn bộ"** - đúng loại sai lệch mà một trợ lý pháp lý không được mắc.
+
+`content.parquet` nặng 785 MB nhưng chỉ đọc theo row-group với column pruning, nên chỉ
+vài chục MB thực sự đi qua mạng.
+
+Kết quả parse trên văn bản thật (tỷ lệ parse ra 0 Điều: **0.0%**, nên **không cần Docling**
+theo đúng ngưỡng 10% đã đặt ra):
+
+| Văn bản | Điều | Khoản | Điểm |
+|---|---|---|---|
+| Hiến pháp 2013 | 120 | 244 | 0 |
+| Bộ luật Hình sự 2015 | 426 | 1.397 | 2.932 |
+| Bộ luật Dân sự 2015 | 689 | 1.418 | 312 |
+| Bộ luật Lao động 2019 | 220 | 648 | 287 |
+| Luật XLVPHC 2012 | 142 | 432 | 418 |
+
+---
+
+## 13. Bộ regression nhiều lĩnh vực
+
+`src/legal_agent/evaluation/datasets/legal_qa_regression.py` - **30 case** trải Hiến pháp,
+Hình sự, Dân sự, Lao động, Doanh nghiệp, Hành chính, Hôn nhân gia đình, cộng 3 case bắt
+buộc từ chối. Hai câu canary chỉ là 2 trong số đó.
+
+Mọi nhãn vàng đều được đối chiếu ngược với văn bản gốc bằng `scripts/verify_goldens.py`.
+Quá trình này đã bắt được nhãn sai của chính tôi (Hiến pháp viết "năm năm" chứ không phải
+"05 năm") và một bug trong chính script kiểm tra (khớp mờ theo tên khiến nhãn của Luật
+Doanh nghiệp 2020 bị kiểm chứng nhầm trên bản 2014 đã hết hiệu lực).
+
+Kết quả hiện tại (12 văn bản, 7.826 chunk, LLM stub):
+
+```
+pass_rate 0.80 · status_accuracy 0.90 · retrieval_recall 0.85
+citation_recall 0.78 · citation_precision 0.89 · stale_citation_rate 0.00
+retry_rate 0.20 · avg_latency 445 ms
+
+Phân bố tầng lỗi của 6 case chưa đạt: a_corpus 4 · c_retrieval 1 · d_generation 1
+```
+
+---
+
+## 14. Hạn chế đã biết
+
+- **Thiếu Luật Doanh nghiệp 59/2020/QH14 và Luật Đất đai 2024 trong corpus.** Bản ghi ưu
+  tiên của hai văn bản này rỗng nội dung; với Luật Doanh nghiệp đã có cơ chế ứng viên dự
+  phòng (id 142881), chạy `python scripts/ingest_priority.py --only "Doanh nghiệp 2020"`
+  là nạp được. Luật Đất đai 2024 chỉ có một bản ghi duy nhất và nó rỗng - đây là khoảng
+  trống của nguồn dữ liệu, không phải của pipeline. 4/6 case chưa đạt đến từ đây.
+- **LLM stub không phải baseline chất lượng.** Câu trả lời được ghép từ 3 khối bằng chứng
+  đầu tiên, nên câu hỏi dạng liệt kê ("những hình phạt chính nào") dễ trượt dù điều luật
+  đúng đã nằm trong context. Chạy với vLLM + Qwen2.5 để đo chất lượng thật.
+- **Trích dẫn buộc phải nằm trong ngoặc đơn**, theo đúng định dạng bắt buộc ở mục 7.
+- **Quan hệ KG khai thác bằng luật (rule-based).** Đã có hai lớp chặn cho bẫy nguy hiểm
+  nhất (luật sửa đổi bị hiểu nhầm thành luật thay thế), nhưng văn bản viết lắt léo vẫn có
+  thể bị bỏ sót quan hệ; khi đó hệ thống trả `khong_xac_dinh` và không trích dẫn.
+
+---
+
+⚖️ **Lưu ý:** Đây là công cụ hỗ trợ tra cứu pháp luật, không thay thế ý kiến tư vấn của
+luật sư hoặc cơ quan nhà nước có thẩm quyền.
