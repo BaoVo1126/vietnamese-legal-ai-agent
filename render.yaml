@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: legal-agent-vn
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile
+    dockerContext: .
+    healthCheckPath: /live
+    envVars:
+      - key: APP_PROFILE
+        value: prod
+      - key: QDRANT_MODE
+        value: server
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: GRAPH_BACKEND
+        value: neo4j
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: LLM_BACKEND
+        value: openai_compatible
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: EMBEDDING_BACKEND
+        value: stub
