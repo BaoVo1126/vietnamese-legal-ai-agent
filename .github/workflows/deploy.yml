@@ -1,0 +1,37 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "Chưa cấu hình secret RENDER_DEPLOY_HOOK - bỏ qua deploy."; exit 0
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+
+      - name: Wait for the service to report healthy
+        env:
+          SERVICE_URL: ${{ secrets.SERVICE_URL }}
+        run: |
+          if [ -z "$SERVICE_URL" ]; then echo "Chưa cấu hình SERVICE_URL."; exit 0; fi
+          for i in $(seq 1 40); do
+            if curl -fsS "$SERVICE_URL/live" > /dev/null; then
+              echo "Deploy thành công."; exit 0
+            fi
+            sleep 15
+          done
+          echo "Health check thất bại sau ~10 phút"; exit 1
