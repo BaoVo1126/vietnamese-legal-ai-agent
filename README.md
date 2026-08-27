@@ -1,21 +1,52 @@
+<div align="center">
+
+```
+   ⚖️  ██╗   ██╗███╗   ██╗      ██╗     ███████╗ ██████╗  █████╗ ██╗
+       ██║   ██║████╗  ██║      ██║     ██╔════╝██╔════╝ ██╔══██╗██║
+       ██║   ██║██╔██╗ ██║█████╗██║     █████╗  ██║  ███╗███████║██║
+       ╚██╗ ██╔╝██║╚██╗██║╚════╝██║     ██╔══╝  ██║   ██║██╔══██║██║
+        ╚████╔╝ ██║ ╚████║      ███████╗███████╗╚██████╔╝██║  ██║██║
+         ╚═══╝  ╚═╝  ╚═══╝      ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝
+              A G E N T   ·   R e t r i e v a l - G r o u n d e d
+```
+
 # Vietnamese Legal AI Agent
 
-A production-oriented, version-aware RAG agent for Vietnamese legal question answering — combining **hybrid retrieval, reranking, a Legal Knowledge Graph, LangGraph orchestration, deterministic citation validation, evaluation, monitoring, and refusal policies** so answers stay grounded in retrieved evidence instead of unsupported model knowledge.
+*A production-oriented, version-aware RAG agent for Vietnamese legal question answering*
 
-> **Disclaimer:** Information-retrieval / research system only. Does not replace legal advice from a qualified lawyer or authorized government agency.
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#7-tech-stack)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-1C3C3C?style=flat-square)](#7-tech-stack)
+[![Vector DB](https://img.shields.io/badge/Vector%20DB-Qdrant-DC244C?style=flat-square)](#7-tech-stack)
+[![Graph](https://img.shields.io/badge/Knowledge%20Graph-Neo4j-4581C3?style=flat-square&logo=neo4j&logoColor=white)](#7-tech-stack)
+[![LLM](https://img.shields.io/badge/LLM%20Serving-vLLM-6E56CF?style=flat-square)](#7-tech-stack)
+[![License](https://img.shields.io/badge/status-research%2FMVP-lightgrey?style=flat-square)](#20-limitations)
+[![Stale Citations](https://img.shields.io/badge/stale__citation__rate-0.00-success?style=flat-square)](#14-evaluation)
 
-**Live Demo:** [Add demo link here](YOUR_DEMO_LINK)
+</div>
+
+Combines **hybrid retrieval, reranking, a Legal Knowledge Graph, LangGraph orchestration, deterministic citation validation, evaluation, monitoring, and refusal policies** so answers stay grounded in retrieved evidence instead of unsupported model knowledge.
+
+> ⚠️ **Disclaimer:** Information-retrieval / research system only. Does not replace legal advice from a qualified lawyer or authorized government agency.
+
+**🔗 Live Demo:** [Add demo link here](YOUR_DEMO_LINK)
+
+<details>
+<summary><b>📑 Table of Contents</b></summary>
+
+1. [Overview](#1-overview) · 2. [Key Features](#2-key-features) · 3. [Architecture](#3-system-architecture) · 4. [Agent Responsibilities](#4-agent-responsibilities) · 5. [Design Thinking](#5-design-thinking-why-these-choices) · 6. [Project Structure](#6-project-structure) · 7. [Tech Stack](#7-tech-stack) · 8. [Quick Start](#8-quick-start-mvp--no-gpuexternal-llmqdrantneo4j-required) · 9. [Build KB](#9-build-the-knowledge-base) · 10–12. [Run It](#1012-run-it) · 13. [Production Config](#13-production-configuration) · 14. [Evaluation](#14-evaluation) · 15. [Testing](#15-testing) · 16. [Failure Diagnosis](#16-failure-diagnosis-4-layers) · 17. [Monitoring](#17-monitoring) · 18. [CI/CD](#18-cicd) · 19. [MVP Scope](#19-current-mvp-scope) · 20. [Limitations](#20-limitations) · 21. [Engineering Principles](#21-engineering-principles) · 22. [Acknowledgements](#22-acknowledgements) · 23. [Latest Updates](#23-latest-implementation-updates)
+
+</details>
 
 ---
 
-## 1. Overview
+## 🧭 1. Overview
 
 Legal QA is harder than ordinary document search: the system must find the right provision, distinguish active vs. expired documents, follow relationships between laws and guiding documents, and avoid answering when evidence is insufficient. Two core principles drive the design:
 
 1. **Grounded-or-refuse** — the agent answers only from retrieved, validated evidence; insufficient evidence → refusal, not a guess.
 2. **Version-aware reasoning** — documents are checked against effective status and relationships before they can support an answer.
 
-## 2. Key Features
+## ✨ 2. Key Features
 
 - Structure-aware parsing (Document → Chapter → Section → Article → Clause → Point) + metadata extraction (number, authority, dates, status)
 - Rule-based legal relationship extraction
@@ -28,7 +59,7 @@ Legal QA is harder than ordinary document search: the system must find the right
 - Production-shaped Qdrant + Neo4j + vLLM deployment
 - Golden-set evaluation, regression testing, runtime monitoring, CI pipeline
 
-## 3. System Architecture
+## 🏗️ 3. System Architecture
 
 **Offline Ingestion Pipeline** — preserves legal structure instead of splitting by character length. A chunk = one Clause (or a full Article when no clauses exist); long clauses split only at Points.
 
@@ -62,7 +93,7 @@ flowchart TD
     KG -->|No valid legal evidence| X
 ```
 
-## 4. Agent Responsibilities
+## 🧩 4. Agent Responsibilities
 
 | Component | Responsibility |
 |---|---|
@@ -76,14 +107,14 @@ flowchart TD
 
 Retrieval retries are bounded by `MAX_RETRIEVAL_ATTEMPTS` to prevent uncontrolled loops.
 
-## 5. Design Thinking (Why These Choices)
+## 💡 5. Design Thinking (Why These Choices)
 
 - **BM25 + Dense + RRF, not vector search alone** — legal queries often hinge on exact document/article/clause numbers and phrases, which sparse retrieval captures better than embeddings alone. RRF combines BM25 and vector *rank positions* rather than raw scores, which aren't on comparable scales.
 - **Knowledge Graph** — legal documents are interconnected (e.g. Article → Guiding Decree → current status). The KG models relationships (`HUONG_DAN` guidance, `THAY_THE` replacement, `SUA_DOI` amendment, `BAI_BO` repeal, `CAN_CU` legal basis) so evidence is validated beyond text similarity.
 - **Deterministic citation gate, not LLM self-grading** — Generated Answer → Citation Extraction → Evidence Matching → Legal Status Validation → Pass/Refuse. Unsupported citations are rejected outright.
 - **Refusal as a first-class outcome** — a confident wrong answer is worse than a refusal. Enough evidence → Answer; insufficient/invalid/out-of-scope → Refuse. This makes reliability a system property, not just a prompt instruction.
 
-## 6. Project Structure
+## 📁 6. Project Structure
 
 ```text
 AIAgent_phapluatVN/
@@ -107,7 +138,7 @@ AIAgent_phapluatVN/
 ├── pyproject.toml · requirements.txt · .env.example · render.yaml
 ```
 
-## 7. Tech Stack
+## 🛠️ 7. Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -121,7 +152,7 @@ AIAgent_phapluatVN/
 | Evaluation / Testing / Lint | Custom golden-set eval / Pytest / Ruff |
 | Deployment | Docker, GitHub Actions, Render |
 
-## 8. Quick Start (MVP — no GPU/external LLM/Qdrant/Neo4j required)
+## 🚀 8. Quick Start (MVP — no GPU/external LLM/Qdrant/Neo4j required)
 
 ```bash
 git clone <your-repository-url>
@@ -146,7 +177,7 @@ QDRANT_MODE=memory
 GRAPH_BACKEND=memory
 ```
 
-## 9. Build the Knowledge Base
+## 📚 9. Build the Knowledge Base
 
 ```bash
 python scripts/ingest_priority.py    # included priority corpus
@@ -155,7 +186,7 @@ python scripts/run_ingestion.py      # normal ingestion pipeline
 
 Pipeline: `Load Documents → Parse Legal Structure → Extract Metadata → Extract Legal Relations → Build Legal Chunks → Build BM25 + Dense Index → Build Knowledge Graph`
 
-## 10–12. Run It
+## ▶️ 10–12. Run It
 
 - **Streamlit UI:** `python scripts/run_ui.py` → http://localhost:8501 (Q&A, evidence inspection, execution trace, monitoring, evaluation, document lookup)
 - **REST API:** `python scripts/run_api.py --port 8080` → docs at http://localhost:8080/docs
@@ -165,7 +196,7 @@ Pipeline: `Load Documents → Parse Legal Structure → Extract Metadata → Ext
   ```
 - **CLI:** `python scripts/ask_cli.py "What are the requirements for establishing an enterprise?"`
 
-## 13. Production Configuration
+## 🏭 13. Production Configuration
 
 ```text
                 Streamlit
@@ -196,7 +227,7 @@ GRAPH_BACKEND=neo4j
 
 Then rebuild: `python scripts/run_ingestion.py`
 
-## 14. Evaluation
+## 📊 14. Evaluation
 
 ```bash
 python scripts/run_eval.py
@@ -216,7 +247,7 @@ python scripts/run_eval.py --regression --diagnose-failures
 
 **Current MVP snapshot:** `pass_rate 0.90 · status_accuracy 1.00 · retrieval_recall 1.00 · citation_recall 0.88 · citation_precision 1.00 · stale_citation_rate 0.00 · retry_rate 0.20 · avg_latency 471 ms`
 
-## 15. Testing
+## ✅ 15. Testing
 
 ```bash
 pytest                          # fast tests
@@ -226,7 +257,7 @@ ruff check src tests scripts app
 
 Covers: parsing, chunk boundaries, citation parsing, KG relationships, version propagation, hybrid retrieval, agent routing, self-correction, refusal behavior, citation validation, monitoring, evaluation, API contracts, integration.
 
-## 16. Failure Diagnosis (4 Layers)
+## 🔍 16. Failure Diagnosis (4 Layers)
 
 When an answer is wrong, the project identifies which layer failed *before* touching the prompt:
 
@@ -255,7 +286,7 @@ python scripts/diagnose.py
 python scripts/run_eval.py --regression --diagnose-failures
 ```
 
-## 17. Monitoring
+## 📡 17. Monitoring
 
 Logs to `data/processed/run_log.jsonl`: refusal rate, retry rate, total/node-level latency, p50/p95, execution traces.
 
@@ -266,17 +297,17 @@ curl http://localhost:8080/runs?limit=20
 
 Optional LangSmith tracing via `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` env vars.
 
-## 18. CI/CD
+## 🔄 18. CI/CD
 
 `Lint → Unit Tests → Integration Tests → Evaluation Gate → Docker Build → Deployment`
 
 Five CI jobs — **lint** (Ruff), **test** (fast suite, Py 3.11/3.12), **integration** (slow tests vs. real indexes/corpus), **evaluate** (golden-set + threshold gate, uploads report as artifact), **docker** (build + `/live` smoke test). The evaluation job can fail the build below threshold. Deployment uses the Render deploy hook and waits for `/live` to become healthy.
 
-## 19. Current MVP Scope
+## 📦 19. Current MVP Scope
 
 Domains covered: Constitution, Criminal Law, Civil Law, Labor Law, Enterprise Law, Administrative violations, Marriage & family law — plus a smaller sample corpus for demos. Evaluation includes both domain-specific regression cases and explicit refusal cases.
 
-## 20. Limitations
+## ⚠️ 20. Limitations
 
 - Some source documents incomplete/unavailable upstream
 - MVP stub LLM is deterministic — not a real model-quality benchmark
@@ -285,7 +316,7 @@ Domains covered: Constitution, Criminal Law, Civil Law, Labor Law, Enterprise La
 - Legal content changes over time and should be refreshed from authoritative sources
 - Not a substitute for professional legal advice
 
-## 21. Engineering Principles
+## 🎯 21. Engineering Principles
 
 - **Evidence before generation** — the LLM is not the source of truth; retrieved evidence is.
 - **Structure before similarity** — legal hierarchy/metadata preserved before embedding.
@@ -294,13 +325,13 @@ Domains covered: Constitution, Criminal Law, Civil Law, Labor Law, Enterprise La
 - **Measure before optimizing** — retrieval, citation, refusal, and latency evaluated continuously.
 - **Production-shaped from day one** — MVP runs offline; architecture has clear paths to Qdrant, Neo4j, vLLM, monitoring, CI/CD, deployment.
 
-## 22. Acknowledgements
+## 🙏 22. Acknowledgements
 
 Built on open-source technologies: LangGraph, LangChain, Qdrant, Neo4j, FastAPI, Streamlit, the PyTorch ecosystem, and related tooling.
 
 ---
 
-## 23. Latest Implementation Updates
+## 🆕 23. Latest Implementation Updates
 
 Extends the original pipeline with a fuller local workflow, stronger corpus validation, persistent conversations, and production-oriented CI checks.
 
@@ -352,3 +383,11 @@ Real Legal Corpus → Structure-Aware Ingestion → Hybrid Retrieval + Reranking
 ```
 
 **The LLM is not the source of truth — validated legal evidence is.**
+
+<div align="center">
+
+---
+
+⚖️ **Vietnamese Legal AI Agent** · Built with LangGraph · Qdrant · Neo4j · vLLM
+
+</div>
