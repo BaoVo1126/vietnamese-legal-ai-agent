@@ -1,67 +1,84 @@
 # Vietnamese Legal AI Agent
 
-A production-oriented, version-aware RAG agent for Vietnamese legal question answering.
+A production-oriented, version-aware RAG agent for Vietnamese legal
+question answering.
 
-The system combines **hybrid retrieval, reranking, a Legal Knowledge Graph, LangGraph orchestration, deterministic citation validation, evaluation, monitoring, and refusal policies** to make legal answers grounded in retrieved evidence instead of unsupported model knowledge.
+The system combines **hybrid retrieval, reranking, a Legal Knowledge
+Graph, LangGraph orchestration, deterministic citation validation,
+evaluation, monitoring, and refusal policies** to make legal answers
+grounded in retrieved evidence instead of unsupported model knowledge.
 
-> **Disclaimer:** This project is an information-retrieval and research system. It does not replace legal advice from a qualified lawyer or an authorized government agency.
+> **Disclaimer:** This project is an information-retrieval and research
+> system. It does not replace legal advice from a qualified lawyer or an
+> authorized government agency.
 
 **Live Demo:** [Add demo link here](YOUR_DEMO_LINK)
 
----
+------------------------------------------------------------------------
 
 ## 1. Overview
 
 Legal question answering is harder than ordinary document search.
 
-A useful system must answer the right provision, distinguish between active and expired documents, follow relationships between laws and guiding documents, and avoid generating an answer when the evidence is insufficient.
+A useful system must answer the right provision, distinguish between
+active and expired documents, follow relationships between laws and
+guiding documents, and avoid generating an answer when the evidence is
+insufficient.
 
 This project addresses the problem with two core principles:
 
-1. **Grounded-or-refuse**  
-   The agent can only answer from retrieved and validated legal evidence. If the evidence is insufficient, the system refuses instead of guessing.
+1.  **Grounded-or-refuse**\
+    The agent can only answer from retrieved and validated legal
+    evidence. If the evidence is insufficient, the system refuses
+    instead of guessing.
 
-2. **Version-aware reasoning**  
-   Legal documents are checked against their effective status and relationships before they can support an answer.
+2.  **Version-aware reasoning**\
+    Legal documents are checked against their effective status and
+    relationships before they can support an answer.
 
-The result is a controlled RAG workflow designed around **traceability, correctness, and measurable quality**.
+The result is a controlled RAG workflow designed around **traceability,
+correctness, and measurable quality**.
 
----
+------------------------------------------------------------------------
 
 ## 2. Key Features
 
-- Structure-aware parsing of Vietnamese legal documents
-- Legal hierarchy extraction: Document → Chapter → Section → Article → Clause → Point
-- Metadata extraction for document number, authority, dates, and legal status
-- Rule-based legal relationship extraction
-- Hybrid retrieval using:
-  - BM25 sparse retrieval
-  - Dense vector retrieval
-  - Reciprocal Rank Fusion (RRF)
-  - Cross-encoder reranking
-- Legal Knowledge Graph for version and relationship validation
-- LangGraph multi-step agent workflow
-- Query rewriting and retrieval self-correction
-- Deterministic citation auditing
-- Grounding and claim-support verification
-- Explicit refusal paths for unsupported answers
-- FastAPI REST API
-- Streamlit interface
-- Offline MVP mode with deterministic stubs
-- Production-shaped Qdrant + Neo4j + vLLM deployment
-- Golden-set evaluation and regression testing
-- Runtime monitoring and latency metrics
-- CI pipeline with linting, tests, evaluation gates, and Docker validation
+-   Structure-aware parsing of Vietnamese legal documents
+-   Legal hierarchy extraction: Document → Chapter → Section → Article →
+    Clause → Point
+-   Metadata extraction for document number, authority, dates, and legal
+    status
+-   Rule-based legal relationship extraction
+-   Hybrid retrieval using:
+    -   BM25 sparse retrieval
+    -   Dense vector retrieval
+    -   Reciprocal Rank Fusion (RRF)
+    -   Cross-encoder reranking
+-   Legal Knowledge Graph for version and relationship validation
+-   LangGraph multi-step agent workflow
+-   Query rewriting and retrieval self-correction
+-   Deterministic citation auditing
+-   Grounding and claim-support verification
+-   Explicit refusal paths for unsupported answers
+-   FastAPI REST API
+-   Streamlit interface
+-   Offline MVP mode with deterministic stubs
+-   Production-shaped Qdrant + Neo4j + vLLM deployment
+-   Golden-set evaluation and regression testing
+-   Runtime monitoring and latency metrics
+-   CI pipeline with linting, tests, evaluation gates, and Docker
+    validation
 
----
+------------------------------------------------------------------------
 
 ## 3. System Architecture
 
-The architecture separates **offline knowledge preparation** from the **online agent workflow**.
+The architecture separates **offline knowledge preparation** from the
+**online agent workflow**.
 
 ### 1. Offline Ingestion Pipeline
 
-```mermaid
+``` mermaid
 flowchart LR
     A[Raw Legal Documents] --> B[Structure-Aware Parser]
     B --> C[Metadata Extraction]
@@ -76,17 +93,21 @@ flowchart LR
     F --> I[Memory Graph / Neo4j]
 ```
 
-The ingestion pipeline preserves legal structure instead of splitting documents by arbitrary character length.
+The ingestion pipeline preserves legal structure instead of splitting
+documents by arbitrary character length.
 
-A chunk normally represents a **Clause**, or an entire **Article** when no clauses exist. Long clauses are only split at meaningful legal boundaries such as Points.
+A chunk normally represents a **Clause**, or an entire **Article** when
+no clauses exist. Long clauses are only split at meaningful legal
+boundaries such as Points.
 
-This makes every retrieved chunk directly usable as evidence and citation material.
+This makes every retrieved chunk directly usable as evidence and
+citation material.
 
----
+------------------------------------------------------------------------
 
 ### 2. Online Agent Pipeline
 
-```mermaid
+``` mermaid
 flowchart TD
     Q[User Question] --> R[Router]
 
@@ -110,29 +131,49 @@ flowchart TD
 
 The agent is intentionally not a simple:
 
-```text
+``` text
 Question → Retrieve → LLM → Answer
 ```
 
-Instead, it treats retrieval quality, legal validity, and citation correctness as explicit control points.
+Instead, it treats retrieval quality, legal validity, and citation
+correctness as explicit control points.
 
----
+------------------------------------------------------------------------
 
 ## 4. Agent Responsibilities
 
-| Component | Responsibility |
-|---|---|
-| `router` | Classifies intent, rewrites queries, extracts document/article references, and routes requests |
-| `retrieve` | Runs dense + sparse retrieval, fuses rankings with RRF, and reranks candidates |
-| `kg_validate` | Checks legal status and follows relevant document relationships |
-| `verify` | Measures grounding quality and decides whether another retrieval attempt is needed |
-| `answer` | Generates an answer strictly from validated evidence |
-| `citation_check` | Deterministically audits citations and validates atomic claims |
-| `refuse` | Returns a controlled refusal when evidence is insufficient or invalid |
+  -----------------------------------------------------------------------
+  Component                           Responsibility
+  ----------------------------------- -----------------------------------
+  `router`                            Classifies intent, rewrites
+                                      queries, extracts document/article
+                                      references, and routes requests
 
-Retrieval retries are bounded by `MAX_RETRIEVAL_ATTEMPTS`, preventing uncontrolled loops.
+  `retrieve`                          Runs dense + sparse retrieval,
+                                      fuses rankings with RRF, and
+                                      reranks candidates
 
----
+  `kg_validate`                       Checks legal status and follows
+                                      relevant document relationships
+
+  `verify`                            Measures grounding quality and
+                                      decides whether another retrieval
+                                      attempt is needed
+
+  `answer`                            Generates an answer strictly from
+                                      validated evidence
+
+  `citation_check`                    Deterministically audits citations
+                                      and validates atomic claims
+
+  `refuse`                            Returns a controlled refusal when
+                                      evidence is insufficient or invalid
+  -----------------------------------------------------------------------
+
+Retrieval retries are bounded by `MAX_RETRIEVAL_ATTEMPTS`, preventing
+uncontrolled loops.
+
+------------------------------------------------------------------------
 
 ## 5. Design Thinking
 
@@ -140,17 +181,18 @@ Retrieval retries are bounded by `MAX_RETRIEVAL_ATTEMPTS`, preventing uncontroll
 
 Legal queries often contain exact terms such as:
 
-- document numbers
-- article numbers
-- clause numbers
-- legal phrases
-- document titles
+-   document numbers
+-   article numbers
+-   clause numbers
+-   legal phrases
+-   document titles
 
-Dense retrieval is useful for semantic similarity, but exact legal references are often better captured by sparse retrieval.
+Dense retrieval is useful for semantic similarity, but exact legal
+references are often better captured by sparse retrieval.
 
 Therefore, the project combines:
 
-```text
+``` text
 BM25 + Dense Retrieval
         ↓
       RRF
@@ -158,9 +200,11 @@ BM25 + Dense Retrieval
     Reranking
 ```
 
-RRF is used because BM25 and vector similarity scores are not directly comparable. RRF combines their **rank positions** instead of assuming their raw scores share the same scale.
+RRF is used because BM25 and vector similarity scores are not directly
+comparable. RRF combines their **rank positions** instead of assuming
+their raw scores share the same scale.
 
----
+------------------------------------------------------------------------
 
 ### Why a Knowledge Graph?
 
@@ -168,7 +212,7 @@ Legal documents are connected.
 
 A question may require reasoning such as:
 
-```text
+``` text
 Article 26
    ↓
 Guiding Decree
@@ -178,23 +222,25 @@ Current legal status
 
 The Knowledge Graph represents relationships such as:
 
-- `HUONG_DAN` — guidance
-- `THAY_THE` — replacement
-- `SUA_DOI` — amendment
-- `BAI_BO` — repeal
-- `CAN_CU` — legal basis
+-   `HUONG_DAN` --- guidance
+-   `THAY_THE` --- replacement
+-   `SUA_DOI` --- amendment
+-   `BAI_BO` --- repeal
+-   `CAN_CU` --- legal basis
 
-This allows the retrieval pipeline to validate evidence beyond simple text similarity.
+This allows the retrieval pipeline to validate evidence beyond simple
+text similarity.
 
----
+------------------------------------------------------------------------
 
 ### Why not trust the LLM with citations?
 
-The LLM should not be responsible for deciding whether its own citations are valid.
+The LLM should not be responsible for deciding whether its own citations
+are valid.
 
 The project therefore uses a deterministic citation gate:
 
-```text
+``` text
 Generated Answer
       ↓
 Citation Extraction
@@ -206,30 +252,34 @@ Legal Status Validation
 Pass / Refuse
 ```
 
-If a citation cannot be supported by the retrieved evidence, the answer is rejected.
+If a citation cannot be supported by the retrieved evidence, the answer
+is rejected.
 
----
+------------------------------------------------------------------------
 
 ### Why refuse?
 
-For legal applications, a confident wrong answer is worse than an explicit refusal.
+For legal applications, a confident wrong answer is worse than an
+explicit refusal.
 
-The system therefore treats refusal as a valid outcome that can be evaluated:
+The system therefore treats refusal as a valid outcome that can be
+evaluated:
 
-```text
+``` text
 Enough valid evidence → Answer
 Insufficient evidence  → Refuse
 Invalid citation       → Refuse
 Out-of-scope question  → Refuse
 ```
 
-This makes reliability a system-level property rather than only a prompt-level instruction.
+This makes reliability a system-level property rather than only a
+prompt-level instruction.
 
----
+------------------------------------------------------------------------
 
 ## 6. Project Structure
 
-```text
+``` text
 AIAgent_phapluatVN/
 │
 ├── src/legal_agent/
@@ -278,36 +328,53 @@ AIAgent_phapluatVN/
 └── render.yaml
 ```
 
----
+------------------------------------------------------------------------
 
 ## 7. Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Language | Python 3.11+ |
-| Agent Orchestration | LangGraph |
-| API | FastAPI |
-| UI | Streamlit |
-| Sparse Retrieval | BM25 |
-| Dense Retrieval | Sentence Transformers / configurable embedding backend |
-| Reranking | BGE reranker / configurable backend |
-| Vector Database | Qdrant |
-| Knowledge Graph | Neo4j or in-memory graph |
-| LLM | vLLM OpenAI-compatible API |
-| Evaluation | Custom golden-set evaluation |
-| Testing | Pytest |
-| Code Quality | Ruff |
-| Deployment | Docker, GitHub Actions, Render |
+  -----------------------------------------------------------------------
+  Layer                               Technology
+  ----------------------------------- -----------------------------------
+  Language                            Python 3.11+
 
----
+  Agent Orchestration                 LangGraph
+
+  API                                 FastAPI
+
+  UI                                  Streamlit
+
+  Sparse Retrieval                    BM25
+
+  Dense Retrieval                     Sentence Transformers /
+                                      configurable embedding backend
+
+  Reranking                           BGE reranker / configurable backend
+
+  Vector Database                     Qdrant
+
+  Knowledge Graph                     Neo4j or in-memory graph
+
+  LLM                                 vLLM OpenAI-compatible API
+
+  Evaluation                          Custom golden-set evaluation
+
+  Testing                             Pytest
+
+  Code Quality                        Ruff
+
+  Deployment                          Docker, GitHub Actions, Render
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
 
 ## 8. Quick Start
 
-The repository includes an **MVP profile** that can run without a GPU, external LLM, Qdrant server, or Neo4j server.
+The repository includes an **MVP profile** that can run without a GPU,
+external LLM, Qdrant server, or Neo4j server.
 
 ### 1. Clone the repository
 
-```bash
+``` bash
 git clone <your-repository-url>
 cd AIAgent_phapluatVN
 ```
@@ -316,39 +383,39 @@ cd AIAgent_phapluatVN
 
 Windows:
 
-```powershell
+``` powershell
 python -m venv .venv
 .venv\Scripts\activate
 ```
 
 macOS / Linux:
 
-```bash
+``` bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
 ### 3. Install dependencies
 
-```bash
+``` bash
 pip install -r requirements.txt
 ```
 
 ### 4. Configure environment variables
 
-```bash
+``` bash
 cp .env.example .env
 ```
 
 On Windows PowerShell:
 
-```powershell
+``` powershell
 Copy-Item .env.example .env
 ```
 
 The default configuration uses:
 
-```text
+``` text
 APP_PROFILE=mvp
 LLM_BACKEND=stub
 EMBEDDING_BACKEND=stub
@@ -359,25 +426,25 @@ GRAPH_BACKEND=memory
 
 This keeps the first run local and deterministic.
 
----
+------------------------------------------------------------------------
 
 ## 9. Build the Knowledge Base
 
 For the included priority corpus:
 
-```bash
+``` bash
 python scripts/ingest_priority.py
 ```
 
 For the normal ingestion pipeline:
 
-```bash
+``` bash
 python scripts/run_ingestion.py
 ```
 
 The pipeline performs:
 
-```text
+``` text
 Load Documents
     ↓
 Parse Legal Structure
@@ -393,50 +460,50 @@ Build BM25 + Dense Index
 Build Knowledge Graph
 ```
 
----
+------------------------------------------------------------------------
 
 ## 10. Run the Web Application
 
 Start Streamlit:
 
-```bash
+``` bash
 python scripts/run_ui.py
 ```
 
 Open:
 
-```text
+``` text
 http://localhost:8501
 ```
 
 The UI provides:
 
-- Question answering
-- Evidence inspection
-- Execution trace
-- Monitoring
-- Evaluation
-- Legal document lookup
+-   Question answering
+-   Evidence inspection
+-   Execution trace
+-   Monitoring
+-   Evaluation
+-   Legal document lookup
 
----
+------------------------------------------------------------------------
 
 ## 11. Run the REST API
 
 Start FastAPI:
 
-```bash
+``` bash
 python scripts/run_api.py --port 8080
 ```
 
 Open the API documentation:
 
-```text
+``` text
 http://localhost:8080/docs
 ```
 
 Example request:
 
-```bash
+``` bash
 curl -X POST http://localhost:8080/ask \
   -H "Content-Type: application/json" \
   -d '{
@@ -445,21 +512,21 @@ curl -X POST http://localhost:8080/ask \
   }'
 ```
 
----
+------------------------------------------------------------------------
 
 ## 12. Ask from the CLI
 
-```bash
+``` bash
 python scripts/ask_cli.py "What are the requirements for establishing an enterprise?"
 ```
 
----
+------------------------------------------------------------------------
 
 ## 13. Production Configuration
 
 The production-shaped architecture uses:
 
-```text
+``` text
                     ┌───────────────┐
                     │    Streamlit  │
                     └───────┬───────┘
@@ -481,13 +548,13 @@ The production-shaped architecture uses:
 
 Start infrastructure:
 
-```bash
+``` bash
 docker compose -f docker/docker-compose.yml up -d
 ```
 
 For a local vLLM server:
 
-```bash
+``` bash
 vllm serve Qwen/Qwen2.5-7B-Instruct \
   --max-model-len 8192 \
   --port 8000
@@ -495,7 +562,7 @@ vllm serve Qwen/Qwen2.5-7B-Instruct \
 
 Then configure `.env`:
 
-```env
+``` env
 APP_PROFILE=prod
 LLM_BACKEND=openai_compatible
 LLM_BASE_URL=http://localhost:8000/v1
@@ -510,102 +577,119 @@ GRAPH_BACKEND=neo4j
 
 Rebuild the knowledge base:
 
-```bash
+``` bash
 python scripts/run_ingestion.py
 ```
 
----
+------------------------------------------------------------------------
 
 ## 14. Evaluation
 
-The project treats evaluation as part of the system rather than an afterthought.
+The project treats evaluation as part of the system rather than an
+afterthought.
 
 Run the evaluation suite:
 
-```bash
+``` bash
 python scripts/run_eval.py
 ```
 
 Use a regression threshold:
 
-```bash
+``` bash
 python scripts/run_eval.py --fail-under 0.8
 ```
 
 Run regression evaluation with failure diagnosis:
 
-```bash
+``` bash
 python scripts/run_eval.py --regression --diagnose-failures
 ```
 
 The golden set evaluates:
 
-| Metric | Purpose |
-|---|---|
-| `retrieval_recall` | Whether the required legal evidence enters the retrieval pool |
-| `citation_recall` | Whether the correct provisions are cited |
-| `citation_precision` | Whether generated citations are actually supported |
-| `stale_citation_rate` | Whether expired documents are incorrectly cited |
-| `status_accuracy` | Whether the system answers or refuses correctly |
-| `retry_rate` | How often retrieval requires self-correction |
-| `avg_latency` | Average end-to-end response time |
+  -----------------------------------------------------------------------
+  Metric                              Purpose
+  ----------------------------------- -----------------------------------
+  `retrieval_recall`                  Whether the required legal evidence
+                                      enters the retrieval pool
+
+  `citation_recall`                   Whether the correct provisions are
+                                      cited
+
+  `citation_precision`                Whether generated citations are
+                                      actually supported
+
+  `stale_citation_rate`               Whether expired documents are
+                                      incorrectly cited
+
+  `status_accuracy`                   Whether the system answers or
+                                      refuses correctly
+
+  `retry_rate`                        How often retrieval requires
+                                      self-correction
+
+  `avg_latency`                       Average end-to-end response time
+  -----------------------------------------------------------------------
 
 A key production constraint is:
 
-```text
+``` text
 stale_citation_rate = 0
 ```
 
-Citing an expired legal document when a current document should be used is treated as a critical failure.
+Citing an expired legal document when a current document should be used
+is treated as a critical failure.
 
----
+------------------------------------------------------------------------
 
 ## 15. Testing
 
 Run fast tests:
 
-```bash
+``` bash
 pytest
 ```
 
 Run integration tests:
 
-```bash
+``` bash
 pytest -m slow
 ```
 
 Run linting:
 
-```bash
+``` bash
 ruff check src tests scripts app
 ```
 
 The test suite covers:
 
-- Legal document parsing
-- Chunk boundaries
-- Citation parsing
-- Knowledge Graph relationships
-- Version propagation
-- Hybrid retrieval
-- Agent routing
-- Self-correction
-- Refusal behavior
-- Citation validation
-- Monitoring
-- Evaluation
-- API contracts
-- Integration behavior
+-   Legal document parsing
+-   Chunk boundaries
+-   Citation parsing
+-   Knowledge Graph relationships
+-   Version propagation
+-   Hybrid retrieval
+-   Agent routing
+-   Self-correction
+-   Refusal behavior
+-   Citation validation
+-   Monitoring
+-   Evaluation
+-   API contracts
+-   Integration behavior
 
----
+------------------------------------------------------------------------
 
 ## 16. Failure Diagnosis
 
-When an answer is incorrect, the project does not immediately change the prompt.
+When an answer is incorrect, the project does not immediately change the
+prompt.
 
 It first identifies which layer failed.
 
-```mermaid
+``` mermaid
 flowchart LR
     A[Corpus] --> B[Parsing]
     B --> C[Retrieval]
@@ -619,66 +703,69 @@ flowchart LR
 
 Run:
 
-```bash
+``` bash
 python scripts/diagnose.py
 ```
 
 Or diagnose regression failures:
 
-```bash
+``` bash
 python scripts/run_eval.py --regression --diagnose-failures
 ```
 
 The four failure layers are:
 
-1. **Corpus** — required source is missing
-2. **Parsing** — legal structure was extracted incorrectly
-3. **Retrieval** — correct evidence was not retrieved
-4. **Generation** — correct evidence was retrieved but used incorrectly
+1.  **Corpus** --- required source is missing
+2.  **Parsing** --- legal structure was extracted incorrectly
+3.  **Retrieval** --- correct evidence was not retrieved
+4.  **Generation** --- correct evidence was retrieved but used
+    incorrectly
 
-This separation makes debugging more systematic and prevents unnecessary changes to the LLM prompt when the actual problem is missing data or retrieval.
+This separation makes debugging more systematic and prevents unnecessary
+changes to the LLM prompt when the actual problem is missing data or
+retrieval.
 
----
+------------------------------------------------------------------------
 
 ## 17. Monitoring
 
 Each request can be logged to:
 
-```text
+``` text
 data/processed/run_log.jsonl
 ```
 
 Metrics include:
 
-- refusal rate
-- retry rate
-- total latency
-- node-level latency
-- p50 / p95 latency
-- execution traces
+-   refusal rate
+-   retry rate
+-   total latency
+-   node-level latency
+-   p50 / p95 latency
+-   execution traces
 
 API endpoints:
 
-```bash
+``` bash
 curl http://localhost:8080/metrics
 curl http://localhost:8080/runs?limit=20
 ```
 
 Optional LangSmith tracing can be enabled through environment variables:
 
-```env
+``` env
 LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=<your-key>
 LANGSMITH_PROJECT=legal-agent-vn
 ```
 
----
+------------------------------------------------------------------------
 
 ## 18. CI/CD
 
 The repository includes GitHub Actions for:
 
-```text
+``` text
 Lint
   ↓
 Unit Tests
@@ -692,42 +779,53 @@ Docker Build
 Deployment
 ```
 
-The evaluation stage can fail the build when answer quality falls below the configured threshold.
+The evaluation stage can fail the build when answer quality falls below
+the configured threshold.
 
-This turns evaluation into a release-quality gate rather than a manual experiment.
+This turns evaluation into a release-quality gate rather than a manual
+experiment.
 
----
+------------------------------------------------------------------------
 
 ## 19. Current MVP Scope
 
-The project contains Vietnamese legal documents covering multiple domains, including:
+The project contains Vietnamese legal documents covering multiple
+domains, including:
 
-- Constitution
-- Criminal Law
-- Civil Law
-- Labor Law
-- Enterprise Law
-- Administrative violations
-- Marriage and family law
+-   Constitution
+-   Criminal Law
+-   Civil Law
+-   Labor Law
+-   Enterprise Law
+-   Administrative violations
+-   Marriage and family law
 
-The repository also includes a smaller sample corpus for quick demonstrations.
+The repository also includes a smaller sample corpus for quick
+demonstrations.
 
-The evaluation suite contains both domain-specific regression cases and explicit refusal cases.
+The evaluation suite contains both domain-specific regression cases and
+explicit refusal cases.
 
----
+------------------------------------------------------------------------
 
 ## 20. Limitations
 
-This project is designed as an engineering research system, so several limitations remain:
+This project is designed as an engineering research system, so several
+limitations remain:
 
-- Some source documents may be incomplete or unavailable in the upstream corpus.
-- The MVP stub LLM is deterministic and should not be treated as a real model-quality benchmark.
-- Rule-based relationship extraction may miss legally complex wording.
-- Production embedding and reranking require additional compute resources.
-- Legal content can change over time and should be refreshed from authoritative sources.
-- The system should not be used as a substitute for professional legal advice.
+-   Some source documents may be incomplete or unavailable in the
+    upstream corpus.
+-   The MVP stub LLM is deterministic and should not be treated as a
+    real model-quality benchmark.
+-   Rule-based relationship extraction may miss legally complex wording.
+-   Production embedding and reranking require additional compute
+    resources.
+-   Legal content can change over time and should be refreshed from
+    authoritative sources.
+-   The system should not be used as a substitute for professional legal
+    advice.
 
----
+------------------------------------------------------------------------
 
 ## 21. Engineering Principles
 
@@ -739,28 +837,308 @@ The LLM is not the source of truth. Retrieved legal evidence is.
 
 ### Structure before similarity
 
-Legal hierarchy and metadata are preserved before documents are embedded.
+Legal hierarchy and metadata are preserved before documents are
+embedded.
 
 ### Retrieval before prompting
 
-When an answer is wrong, investigate corpus, parsing, and retrieval before modifying prompts.
+When an answer is wrong, investigate corpus, parsing, and retrieval
+before modifying prompts.
 
 ### Deterministic checks where possible
 
-Critical validation such as citation support and legal status should not depend entirely on an LLM.
+Critical validation such as citation support and legal status should not
+depend entirely on an LLM.
 
 ### Measure before optimizing
 
-Retrieval quality, citation quality, refusal behavior, and latency are evaluated continuously.
+Retrieval quality, citation quality, refusal behavior, and latency are
+evaluated continuously.
 
 ### Production-shaped from the beginning
 
-The MVP can run offline, while the architecture provides clear paths to Qdrant, Neo4j, vLLM, monitoring, CI/CD, and deployment.
+The MVP can run offline, while the architecture provides clear paths to
+Qdrant, Neo4j, vLLM, monitoring, CI/CD, and deployment.
 
----
+------------------------------------------------------------------------
 
 ## 22. Acknowledgements
 
-This project uses open-source technologies including LangGraph, LangChain, Qdrant, Neo4j, FastAPI, Streamlit, PyTorch ecosystem models, and related open-source tooling.
+This project uses open-source technologies including LangGraph,
+LangChain, Qdrant, Neo4j, FastAPI, Streamlit, PyTorch ecosystem models,
+and related open-source tooling.
 
-The README structure follows common patterns used by mature AI/agent repositories: clear architecture diagrams, quick-start instructions, project structure, design decisions, evaluation, monitoring, and deployment documentation.
+## The README structure follows common patterns used by mature AI/agent repositories: clear architecture diagrams, quick-start instructions, project structure, design decisions, evaluation, monitoring, and deployment documentation.
+
+## 23. Latest Implementation Updates
+
+The latest implementation extends the original pipeline with a more
+complete local workflow, stronger corpus validation, a persistent
+conversation layer, and production-oriented CI checks.
+
+### 23.1 Local Document Ingestion
+
+The project now supports adding legal documents manually when a required
+document is missing from the upstream corpus.
+
+``` bash
+python scripts/ingest_local_document.py "C:/Downloads/luat-dat-dai.html" \
+  --label "Luật Đất đai 2024" \
+  --title "Luật Đất đai" \
+  --doc-number "31/2024/QH15" \
+  --status "Còn hiệu lực" \
+  --effective "01/08/2024" \
+  --issuing-body "Quốc hội" \
+  --field "Đất đai"
+
+python scripts/run_ingestion.py
+```
+
+Supported local inputs include:
+
+-   `.html`
+-   `.txt`
+-   `.pdf`
+
+The local-ingestion path reuses the same parsing and metadata-validation
+pipeline as the main corpus. Required metadata such as title and
+legal-status values is validated before the document is accepted.
+
+This provides a controlled fallback for source documents that are
+unavailable or incomplete in the upstream dataset without bypassing
+website access controls.
+
+### 23.2 Priority Corpus Ingestion and Source-of-Truth Metadata
+
+The priority ingestion workflow now works directly with the
+`th1nhng0/vietnamese-legal-documents` corpus and distinguishes document
+types instead of relying on title keywords.
+
+The corpus contains approximately **171,556 crawled legal documents**
+with metadata, HTML content, and relationships. Priority selection
+focuses on foundational documents such as the Constitution, Codes, and
+Laws.
+
+An important design rule is that **corpus metadata is treated as the
+source of truth** for effective dates, issuing bodies, and legal status.
+
+The ingestion layer also handles duplicate records with complementary
+information: content can be recovered from one record while metadata is
+taken from another, while legal status follows the more conservative
+interpretation.
+
+For large corpus files, ingestion uses column pruning and row-group
+reads rather than loading the complete dataset into memory.
+
+### 23.3 Real-Document Parsing Validation
+
+The parser has been validated against real legal documents rather than
+only hand-written fixtures.
+
+Current validation shows a **0.0% rate of documents parsing to zero
+Articles** in the measured priority corpus, so the pipeline does not
+require Docling for those documents.
+
+Representative parse counts include:
+
+  Document                                           Articles   Clauses   Points
+  ------------------------------------------------ ---------- --------- --------
+  Constitution 2013                                       120       244        0
+  Criminal Code 2015                                      426     1,397    2,932
+  Civil Code 2015                                         689     1,418      312
+  Labor Code 2019                                         220       648      287
+  Law on Handling Administrative Violations 2012          142       432      418
+
+### 23.4 Golden-Set Verification
+
+Golden evaluation labels can now be checked against the underlying legal
+documents before evaluation is trusted:
+
+``` bash
+python scripts/verify_goldens.py
+```
+
+This prevents a false evaluation signal caused by an incorrect expected
+citation.
+
+The project also includes a searchable article helper:
+
+``` bash
+python scripts/find_article.py "search phrase"
+```
+
+This is useful for locating candidate provisions while preparing or
+reviewing golden cases.
+
+The regression suite currently covers multiple legal domains, including
+constitutional, criminal, civil, labor, enterprise, administrative, and
+marriage/family law, together with explicit refusal cases.
+
+### 23.5 Current Evaluation Snapshot
+
+The current MVP evaluation snapshot is:
+
+``` text
+pass_rate 0.90 · status_accuracy 1.00 · retrieval_recall 1.00
+citation_recall 0.88 · citation_precision 1.00 · stale_citation_rate 0.00
+retry_rate 0.20 · avg_latency 471 ms
+```
+
+The most important safety-oriented invariant remains:
+
+``` text
+stale_citation_rate = 0
+```
+
+A stale legal citation is treated as a critical failure rather than an
+acceptable retrieval error.
+
+### 23.6 Persistent Conversation History
+
+The Streamlit application now persists conversation history in SQLite:
+
+``` text
+data/processed/conversations.db
+```
+
+The storage layer provides:
+
+-   Conversation creation and renaming
+-   Message persistence
+-   Conversation reload
+-   Conversation deletion
+-   Message counts and recent-history queries
+-   JSON payload storage for rebuilding evidence, grounding information,
+    and traces
+
+SQLite was chosen because the current application is local and
+single-user oriented. It requires no additional service while still
+providing transactions, indexes, foreign-key cascading, and WAL mode.
+
+Conversation timestamps retain local timezone information so sidebar
+grouping remains correct without presentation-layer timezone conversion.
+
+### 23.7 Updated Streamlit Experience
+
+The web interface has been redesigned as a full-page chat experience:
+
+-   Dark interface with a single visual accent
+-   Main area dedicated to the conversation
+-   Fixed input area at the bottom
+-   User messages aligned right and assistant responses aligned left
+-   Conversation history in the sidebar
+-   History grouped into **Today, Yesterday, 7 days, 30 days, and
+    Older**
+-   Reloadable conversations with their evidence, grounding metrics, and
+    execution traces
+-   Two-step conversation deletion to prevent accidental data loss
+-   Keyboard-focus support for deletion controls
+-   Touch-device support where hover interactions are unavailable
+
+Legal effect status is displayed as text rather than relying only on
+color, making the information more readable and accessible.
+
+### 23.8 Four-Layer Failure Diagnosis
+
+The diagnostic workflow now explicitly separates failures into four
+layers:
+
+  ------------------------------------------------------------------------------
+  Layer                   Question                Typical Fix
+  ----------------------- ----------------------- ------------------------------
+  **a. Corpus**           Does the source         `scripts/ingest_priority.py`
+                          document exist in the   
+                          knowledge base?         
+
+  **b. Parse**            Was the relevant        `ingestion/parser.py`,
+                          Article/Clause parsed   `patterns.py`
+                          correctly?              
+
+  **c. Retrieval**        Did the correct chunk   `retrieval/hybrid.py`,
+                          enter the retrieval     embeddings, reranker
+                          pool?                   
+
+  **d. Generation**       Was retrieved evidence  `agents/nodes/answer.py`,
+                          used correctly?         prompts
+  ------------------------------------------------------------------------------
+
+Run:
+
+``` bash
+python scripts/diagnose.py
+python scripts/run_eval.py --regression --diagnose-failures
+```
+
+The first failing layer is treated as the root cause. Later layers are
+marked as blocked when their inputs are invalid, preventing prompt
+changes from masking corpus or retrieval problems.
+
+### 23.9 Expanded CI/CD Quality Gates
+
+The CI pipeline now contains five explicit jobs:
+
+  Job             Purpose
+  --------------- --------------------------------------------------
+  `lint`          Ruff static checks
+  `test`          Fast test suite on Python 3.11 and 3.12
+  `integration`   Slow tests against real indexes/corpus
+  `evaluate`      Golden-set verification and evaluation threshold
+  `docker`        Docker build and `/live` smoke test
+
+The evaluation job can fail the build when regression quality falls
+below the configured threshold and uploads the evaluation report as a CI
+artifact.
+
+Deployment uses the Render deploy hook and waits for the `/live`
+endpoint to become healthy.
+
+### 23.10 Current Project Utilities
+
+The scripts directory now includes the following operational entry
+points:
+
+``` text
+scripts/
+├── ask_cli.py
+├── diagnose.py
+├── find_article.py
+├── ingest_local_document.py
+├── ingest_priority.py
+├── run_api.py
+├── run_eval.py
+├── run_ingestion.py
+├── run_ui.py
+└── verify_goldens.py
+```
+
+Together, these utilities cover interactive querying, corpus ingestion,
+local document supplementation, article discovery, evaluation,
+regression diagnosis, API/UI startup, and golden-label verification.
+
+### 23.11 Engineering Takeaway
+
+The latest version moves the project beyond a conventional RAG demo
+toward a **testable and operational legal-agent system**:
+
+``` text
+Real Legal Corpus
+      ↓
+Structure-Aware Ingestion
+      ↓
+Hybrid Retrieval + Reranking
+      ↓
+Knowledge Graph Validation
+      ↓
+Grounding Verification
+      ↓
+Evidence-Constrained Generation
+      ↓
+Deterministic Citation Gate
+      ↓
+Answer / Refuse
+      ↓
+Evaluation + Monitoring + CI/CD
+```
+
+The key objective remains unchanged: **the LLM is not the source of
+truth; validated legal evidence is.**
