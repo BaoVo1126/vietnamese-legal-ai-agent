@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -60,6 +61,10 @@ class Settings(BaseSettings):
     max_chunk_chars: int = 2000
     min_chunk_chars: int = 40
 
+    kg_llm_fallback: bool = False
+
+    conversation_db_path: Path = Path("data/processed/conversations.db")
+
     enable_run_log: bool = True
     run_log_path: Path = Path("data/processed/run_log.jsonl")
 
@@ -88,6 +93,10 @@ class Settings(BaseSettings):
     @property
     def abs_graph_snapshot_path(self) -> Path:
         return self.resolve(self.graph_snapshot_path)
+
+    @property
+    def abs_conversation_db_path(self) -> Path:
+        return self.resolve(self.conversation_db_path)
 
     @property
     def abs_run_log_path(self) -> Path:
