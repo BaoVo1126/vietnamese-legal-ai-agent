@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, Query
+
 from ...agents.service import LegalAgentService
 from ..deps import get_agent_service
 from ..schemas import MetricsResponse
