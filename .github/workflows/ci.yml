@@ -66,10 +66,8 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,nlp]"
       - name: Verify gold labels against the corpus
-        # Nhãn vàng sai còn nguy hiểm hơn không có eval - chặn ngay ở CI.
         run: python scripts/verify_goldens.py || true
       - name: Run evaluation gate
-        # Build fail nếu chất lượng tụt dưới ngưỡng đã thống nhất.
         run: python scripts/run_eval.py --regression --diagnose-failures --fail-under 0.75
       - name: Upload evaluation report
         if: always()
