@@ -16,8 +16,6 @@ _REFUSAL_MARKERS = (
 
 
 class AnswerNode:
-    """Generate the draft answer from the validated evidence."""
-
     name = "answer"
 
     def __init__(self, context: AgentContext) -> None:
