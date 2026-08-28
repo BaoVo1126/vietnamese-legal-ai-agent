@@ -32,6 +32,7 @@ CHỈ trả về JSON đúng schema sau, không thêm lời dẫn:
   "rewritten_query": "<truy vấn đã viết lại, giàu thuật ngữ pháp lý>",
   "sub_queries": ["<truy vấn con 1>", "..."],
   "doc_numbers": ["<số hiệu văn bản được nhắc tới, nếu có>"],
+  "doc_titles": ["<tên văn bản được nhắc đích danh, vd 'Luật Chứng khoán'>"],
   "dieu_hints": ["<số Điều được nhắc tới, nếu có>"],
   "reasoning": "<một câu giải thích ngắn>"
 }"""
@@ -56,7 +57,8 @@ QUY TẮC BẮT BUỘC:
    "Không đủ căn cứ pháp lý rõ ràng để trả lời câu hỏi này."
 5. Viết tiếng Việt, ngắn gọn; không thêm lời khuyên cá nhân.
 
-ĐỊNH DẠNG BẮT BUỘC - trả lời đúng ba dòng theo thứ tự này, không thêm phần mở đầu:
+ĐỊNH DẠNG BẮT BUỘC - trả lời đúng ba khối theo thứ tự này, mỗi khối cách nhau một dòng
+trống (Markdown cần dòng trống mới xuống dòng thật), không thêm phần mở đầu:
 **Đáp án: <câu trả lời trực tiếp, tối đa một câu>**
 Căn cứ: (Điều <số>, Khoản <số>, <Tên văn bản> <Số hiệu>)
 Giải thích: <tối đa 2-3 câu, mỗi ý kèm trích dẫn trong ngoặc đơn>
@@ -161,3 +163,39 @@ def format_graph_context(notes: list[str]) -> str:
         return ""
     lines = "\n".join(f"- {note}" for note in notes)
     return f"THÔNG TIN HIỆU LỰC TỪ KNOWLEDGE GRAPH (bắt buộc tôn trọng):\n{lines}\n"
+
+
+RELATION_EXTRACTION_SYSTEM = """Bạn là bộ trích xuất quan hệ giữa các văn bản quy phạm
+pháp luật Việt Nam. Với mỗi câu được đánh số, hãy xác định văn bản đang xét có quan hệ gì
+với văn bản khác được nhắc tới trong câu đó.
+
+Các loại quan hệ hợp lệ:
+- THAY_THE: văn bản đang xét THAY THẾ TOÀN BỘ văn bản kia (văn bản kia hết hiệu lực)
+- SUA_DOI: văn bản đang xét sửa đổi, bổ sung MỘT SỐ ĐIỀU của văn bản kia
+- HUONG_DAN: văn bản đang xét quy định chi tiết / hướng dẫn thi hành văn bản kia
+- BAI_BO: văn bản đang xét bãi bỏ văn bản kia
+- CAN_CU: văn bản đang xét được ban hành CĂN CỨ vào văn bản kia
+- DAN_CHIEU: chỉ dẫn chiếu tới, không tạo quan hệ hiệu lực
+- KHONG_RO: không xác định được quan hệ
+
+QUY TẮC QUAN TRỌNG:
+1. "Thay thế cụm từ / từ ngữ / chữ" là sửa CÂU CHỮ, KHÔNG phải THAY_THE văn bản.
+2. Một luật sửa đổi KHÔNG thay thế luật mà nó sửa - đó là SUA_DOI.
+3. Chỉ nói THAY_THE khi câu văn nêu rõ văn bản kia hết hiệu lực toàn bộ.
+4. Không chắc thì trả KHONG_RO. Một quan hệ sai làm cả văn bản bị coi là hết hiệu lực.
+
+CHỈ trả về JSON:
+{
+  "relations": [
+    {"index": <số thứ tự câu>, "target": "<số hiệu văn bản kia>",
+     "relation": "<một trong các loại trên>", "target_dieu": "<số Điều, hoặc null>",
+     "confidence": <0.0-1.0>}
+  ]
+}"""
+
+RELATION_EXTRACTION_USER = """VĂN BẢN ĐANG XÉT: {source}
+
+CÁC CÂU CẦN PHÂN LOẠI:
+{sentences}
+
+Trả về JSON."""
