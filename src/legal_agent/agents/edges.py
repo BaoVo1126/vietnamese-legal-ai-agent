@@ -18,11 +18,17 @@ def make_route_after_verifier(settings: Settings):
     def route_after_verifier(state: AgentState) -> str:
         if state.get("is_sufficient"):
             return "answer"
-        if state.get("attempts", 0) < settings.max_retrieval_attempts:
-            logger.info("Self-correction: thử truy xuất lại (lần %d/%d).",
-                        state.get("attempts", 0) + 1, settings.max_retrieval_attempts)
-            return "retrieve"
-        return "refuse"
+        if state.get("attempts", 0) >= settings.max_retrieval_attempts:
+            return "refuse"
+        if not state.get("retrieved"):
+            logger.info("Bỏ qua retry: lượt truy xuất không trả về bằng chứng nào.")
+            return "refuse"
+        if not state.get("query_changed"):
+            logger.info("Bỏ qua retry: truy vấn viết lại không khác truy vấn vừa dùng.")
+            return "refuse"
+        logger.info("Self-correction: thử truy xuất lại (lần %d/%d).",
+                    state.get("attempts", 0) + 1, settings.max_retrieval_attempts)
+        return "retrieve"
 
     return route_after_verifier
 
