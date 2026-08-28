@@ -12,6 +12,7 @@ _DEFAULT_ROUTE = {
     "rewritten_query": "",
     "sub_queries": [],
     "doc_numbers": [],
+    "doc_titles": [],
     "dieu_hints": [],
     "reasoning": "",
 }
@@ -41,6 +42,8 @@ class RouterNode:
             "search_query": rewritten,
             "sub_queries": sub_queries[:3],
             "doc_hints": [str(item) for item in payload.get("doc_numbers", []) if item],
+            "doc_title_hints": [str(item).strip()
+                                for item in payload.get("doc_titles", []) if item],
             "dieu_hints": [str(item) for item in payload.get("dieu_hints", []) if item],
             "trace": [trace_entry(self.name, intent=intent.value, rewritten_query=rewritten,
                                  sub_queries=sub_queries[:3],
