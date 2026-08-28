@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from dataclasses import dataclass, field
-
 from ..domain.document import LegalDocumentMeta
 from ..domain.enums import NODE_LEVEL_DEPTH, NodeLevel
 from ..domain.node import LegalNode
