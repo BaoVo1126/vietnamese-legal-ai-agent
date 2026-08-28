@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from ..config import get_settings
 from ..llm.prompts import DISCLAIMER
 from ..logging_config import get_logger, setup_logging
