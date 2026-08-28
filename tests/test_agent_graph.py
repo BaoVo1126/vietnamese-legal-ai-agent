@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import json
+
 import pytest
+
 from legal_agent.agents.graph import build_agent_graph
 from legal_agent.agents.nodes.base import AgentContext
 from legal_agent.agents.state import initial_state
@@ -24,7 +27,11 @@ class ScriptedLLM(BaseLLMClient):
     def __init__(self, *, intent: str = QueryIntent.HOI_DAP_KHAI_NIEM.value,
                  grounding: float | list[float] = 0.9,
                  answer: str = ANSWER_WITH_GOOD_CITATION,
-                 claim_verdict: str = "supported") -> None:
+                 claim_verdict: str = "supported",
+                 named_documents: list[str] | None = None,
+                 rewritten_query: str = "truy vấn tốt hơn") -> None:
+        self.named_documents = named_documents or []
+        self.rewritten_query = rewritten_query
         self.intent = intent
         self.grounding = grounding if isinstance(grounding, list) else [grounding]
         self.answer = answer
@@ -34,14 +41,16 @@ class ScriptedLLM(BaseLLMClient):
     def complete(self, system: str, user: str, *, task: str = "generic", **kwargs) -> str:
         self.calls.append(task)
         if task == "router":
-            return json.dumps({"intent": self.intent, "rewritten_query": "truy vấn đã viết lại",
-                               "sub_queries": [], "doc_numbers": [], "dieu_hints": []})
+            return json.dumps({"intent": self.intent,
+                               "rewritten_query": "truy vấn đã viết lại",
+                               "sub_queries": [], "doc_numbers": [],
+                               "doc_titles": self.named_documents, "dieu_hints": []})
         if task == "verifier":
             index = min(self.calls.count("verifier") - 1, len(self.grounding) - 1)
             score = self.grounding[index]
             return json.dumps({"grounding_score": score, "is_sufficient": score >= 0.6,
                                "missing_information": "thiếu quy định cốt lõi",
-                               "rewritten_query": "truy vấn tốt hơn"})
+                               "rewritten_query": self.rewritten_query})
         if task == "answer":
             return self.answer
         if task == "claim_extraction":
@@ -202,3 +211,101 @@ class TestVersionAwareness:
 def test_support_ratio_weighting(settings, verdict, expected):
     state, _ = run(settings, llm=ScriptedLLM(claim_verdict=verdict))
     assert state["support_ratio"] == expected
+
+
+class TestNamedDocumentScope:
+    def test_question_naming_an_absent_law_is_refused(self, settings):
+        llm = ScriptedLLM(named_documents=["Luật Chứng khoán"])
+        state, _ = run(settings, llm=llm,
+                       question="Điều kiện chào bán chứng khoán ra công chúng theo "
+                                "Luật Chứng khoán là gì?")
+        assert state["status"] == "refused"
+        assert "Luật Chứng khoán" in state["refusal_reason"]
+        assert "answer" not in llm.calls, "không được sinh câu trả lời khi sai phạm vi"
+
+    def test_question_naming_a_present_law_is_answered(self, settings):
+        llm = ScriptedLLM(named_documents=["Luật Doanh nghiệp"])
+        state, _ = run(settings, llm=llm,
+                       question="Theo Luật Doanh nghiệp, ai không được thành lập "
+                                "doanh nghiệp?")
+        assert state["status"] == "answered"
+
+    def test_guard_stays_quiet_when_no_document_is_named(self, settings):
+        llm = ScriptedLLM(named_documents=[])
+        state, _ = run(settings, llm=llm)
+        assert state["status"] == "answered"
+
+    def test_partial_match_across_several_named_documents_is_allowed(self, settings):
+        llm = ScriptedLLM(named_documents=["Luật Doanh nghiệp", "Luật Chứng khoán"])
+        state, _ = run(settings, llm=llm,
+                       question="So sánh quy định chào bán cổ phần giữa Luật Doanh "
+                                "nghiệp và Luật Chứng khoán?")
+        assert state["status"] == "answered"
+
+
+class TestListQuestionAnswering:
+    def test_detects_list_questions(self):
+        from legal_agent.llm.stub_client import _is_list_question
+
+        assert _is_list_question("Các hình thức xử phạt gồm những gì?")
+        assert _is_list_question("Những hình phạt chính nào đối với người phạm tội?")
+        assert not _is_list_question("Người thành niên là người từ bao nhiêu tuổi?")
+
+    def test_groups_evidence_by_article(self):
+        from legal_agent.llm.stub_client import _article_key
+
+        first = _article_key("Điều 21, Khoản 1, Luật Xử lý vi phạm hành chính 15/2012/QH13")
+        second = _article_key("Điều 21, Khoản 3, Luật Xử lý vi phạm hành chính 15/2012/QH13")
+        other = _article_key("Điều 61, Khoản 3, Luật Xử lý vi phạm hành chính 15/2012/QH13")
+        assert first == second
+        assert first != other
+
+    def test_list_answer_prefers_the_enumerating_article_over_rank_one(self):
+        from legal_agent.llm.stub_client import RuleBasedStubLLM
+
+        prompt = (
+            "CÂU HỎI:\n"
+            "Các hình thức xử phạt vi phạm hành chính gồm những gì?\n\n"
+            "BẰNG CHỨNG (chỉ được dùng phần này):\n"
+            "[1] Điều 61, Khoản 3, Luật Xử lý vi phạm hành chính 15/2012/QH13 (còn hiệu lực)\n"
+            "Nội dung: Cá nhân vi phạm phải gửi văn bản yêu cầu được giải trình trực tiếp.\n\n"
+            "[2] Điều 21, Khoản 1, Luật Xử lý vi phạm hành chính 15/2012/QH13 (còn hiệu lực)\n"
+            "Nội dung: Các hình thức xử phạt vi phạm hành chính bao gồm cảnh cáo, phạt tiền.\n\n"
+            "[3] Điều 21, Khoản 2, Luật Xử lý vi phạm hành chính 15/2012/QH13 (còn hiệu lực)\n"
+            "Nội dung: Hình thức xử phạt tước quyền sử dụng giấy phép có thời hạn.\n"
+        )
+        answer = RuleBasedStubLLM().complete("", prompt, task="answer")
+        assert "Điều 21" in answer
+        assert "cảnh cáo" in answer.lower()
+        assert answer.startswith("**Đáp án:")
+
+
+class TestRetryIsWorthIt:
+    def test_no_retry_when_evidence_is_empty_and_query_unchanged(self, settings):
+        retriever = FakeRetriever(results=[])
+        llm = ScriptedLLM(grounding=[0.1], rewritten_query="")
+        state, _ = run(settings, llm=llm, retriever=retriever)
+        assert retriever.calls == 1, "không được truy xuất lại khi không có gì để xếp lại"
+        assert state["status"] == "refused"
+
+    def test_no_retry_when_the_rewritten_query_is_only_cosmetic(self, settings):
+        retriever = FakeRetriever()
+        llm = ScriptedLLM(grounding=[0.1], rewritten_query="truy vấn đã viết lại")
+        state, _ = run(settings, llm=llm, retriever=retriever)
+        assert retriever.calls == 1
+        assert state["status"] == "refused"
+
+    def test_retry_still_runs_when_evidence_exists_but_grounding_is_low(self, settings):
+        retriever = FakeRetriever()
+        state, _ = run(settings, llm=ScriptedLLM(grounding=[0.2, 0.9]),
+                       retriever=retriever)
+        assert retriever.calls == 2
+        assert state["status"] == "answered"
+
+    def test_cosmetic_rewrite_is_not_material(self):
+        from legal_agent.agents.nodes.verifier import _materially_different
+
+        assert not _materially_different("Vốn điều lệ được hiểu",
+                                         "Vốn điều lệ được hiểu như thế nào?")
+        assert _materially_different("tuổi chịu trách nhiệm hình sự",
+                                     "Vốn điều lệ được hiểu như thế nào?")
