@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from datetime import date
+
 from legal_agent.domain.enums import EffectStatus, RelationType
 from legal_agent.kg.builder import KnowledgeGraphBuilder
 from legal_agent.kg.memory_store import MemoryGraphStore
@@ -155,3 +157,83 @@ class TestGraphReset:
         KnowledgeGraphBuilder(store).build([stale])
         KnowledgeGraphBuilder(store).build([parsed_law.meta])
         assert store.get_document("99/1999/QH10") is not None
+
+
+class TestRelationLLMFallback:
+    """LLM chỉ bổ sung những câu mà luật không khai thác được, và vẫn bị hai lớp chặn.
+
+    Fallback tồn tại vì luật rule-based bỏ sót cách diễn đạt lạ. Nhưng nới lỏng ở đây
+    nguy hiểm: một cạnh THAY_THE sai làm cả văn bản bị coi là hết hiệu lực, nên đề xuất
+    của mô hình phải đi qua đúng các lớp chặn mà luật đang dùng.
+    """
+
+    class ScriptedRelationLLM:
+        def __init__(self, relations):
+            self.relations = relations
+            self.calls = 0
+
+        def complete_json(self, system, user, *, task="generic", default=None, **kwargs):
+            self.calls += 1
+            assert task == "relation_extraction"
+            return {"relations": self.relations}
+
+    def _meta(self, title="Nghị định về một việc", number="10/2020/NĐ-CP"):
+        from legal_agent.domain.document import LegalDocumentMeta
+
+        return LegalDocumentMeta(doc_id="x", doc_number=number, title=title)
+
+    def test_llm_fills_a_relation_the_rules_missed(self):
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        llm = self.ScriptedRelationLLM([
+            {"index": 0, "target": "99/2015/NĐ-CP", "relation": "HUONG_DAN",
+             "target_dieu": "7", "confidence": 0.8}])
+        text = "Văn bản này làm rõ cách thi hành Nghị định số 99/2015/NĐ-CP."
+        relations = RelationExtractor(llm=llm).extract(self._meta(), text)
+        assert llm.calls == 1
+        assert [(r.relation, r.target_dieu) for r in relations] == [
+            (RelationType.HUONG_DAN, "7")]
+        assert relations[0].confidence <= 0.75, "độ tin cậy của LLM phải bị chặn trần"
+
+    def test_llm_is_not_called_when_the_rules_already_matched(self):
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        llm = self.ScriptedRelationLLM([])
+        text = "Nghị định này quy định chi tiết Nghị định số 99/2015/NĐ-CP."
+        RelationExtractor(llm=llm).extract(self._meta(), text)
+        assert llm.calls == 0
+
+    def test_llm_cannot_bypass_the_amending_law_guard(self):
+        """Văn bản sửa đổi: đề xuất THAY_THE của LLM phải bị loại."""
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        llm = self.ScriptedRelationLLM([
+            {"index": 0, "target": "100/2015/QH13", "relation": "THAY_THE",
+             "confidence": 1.0}])
+        meta = self._meta(title="Luật Sửa đổi, bổ sung một số điều của Bộ luật Hình sự",
+                          number="12/2017/QH14")
+        text = "Văn bản này điều chỉnh nội dung của Bộ luật Hình sự số 100/2015/QH13."
+        relations = RelationExtractor(llm=llm).extract(meta, text)
+        assert all(r.relation is not RelationType.THAY_THE for r in relations)
+
+    def test_llm_cannot_invent_a_document_absent_from_the_sentence(self):
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        llm = self.ScriptedRelationLLM([
+            {"index": 0, "target": "11/2011/NĐ-CP", "relation": "THAY_THE"}])
+        text = "Văn bản này làm rõ cách thi hành Nghị định số 99/2015/NĐ-CP."
+        assert RelationExtractor(llm=llm).extract(self._meta(), text) == []
+
+    def test_unknown_relation_label_is_dropped(self):
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        llm = self.ScriptedRelationLLM([
+            {"index": 0, "target": "99/2015/NĐ-CP", "relation": "KHONG_RO"}])
+        text = "Văn bản này làm rõ cách thi hành Nghị định số 99/2015/NĐ-CP."
+        assert RelationExtractor(llm=llm).extract(self._meta(), text) == []
+
+    def test_extractor_without_llm_behaves_exactly_as_before(self):
+        from legal_agent.ingestion.relation_extractor import RelationExtractor
+
+        text = "Văn bản này làm rõ cách thi hành Nghị định số 99/2015/NĐ-CP."
+        assert RelationExtractor().extract(self._meta(), text) == []
