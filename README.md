@@ -28,7 +28,6 @@ Combines **hybrid retrieval, reranking, a Legal Knowledge Graph, LangGraph orche
 
 >  **Disclaimer:** Information-retrieval / research system only. Does not replace legal advice from a qualified lawyer or authorized government agency.
 
----
 <details>
 <summary><b>📑 Table of Contents</b></summary>
 
