@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from datetime import date
+
 from pydantic import BaseModel, Field
+
 from .citation import Citation
 from .enums import DocumentType, EffectStatus
 
