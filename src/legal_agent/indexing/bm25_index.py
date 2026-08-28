@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 import pickle
 from pathlib import Path
+
 from rank_bm25 import BM25Okapi
+
 from ..domain.chunk import LegalChunk
 from ..logging_config import get_logger
 from .tokenizer import VietnameseTokenizer
