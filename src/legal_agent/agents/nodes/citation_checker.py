@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from ...domain.citation import Citation
 from ...llm.prompts import (
     CLAIM_EXTRACTION_SYSTEM,
@@ -19,8 +18,6 @@ _VERDICT_WEIGHTS = {"supported": 1.0, "partially_supported": 0.5, "unsupported":
 
 
 class CitationCheckerNode:
-    """Verify citations and claims, then finalise or reject the draft."""
-
     name = "citation_check"
 
     def __init__(self, context: AgentContext) -> None:
@@ -132,7 +129,6 @@ class CitationCheckerNode:
 
     @staticmethod
     def _finalise(draft: str, retrieved, state: AgentState) -> str:
-        """Attach the source list, KG notes and the mandatory disclaimer."""
         sources = "\n".join(
             f"- {item.chunk.citation.render()} "
             f"[{item.chunk.effect_status.display_name}]"
