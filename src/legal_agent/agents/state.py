@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
     rewritten_query: str
     sub_queries: list[str]
     doc_hints: list[str]
+    doc_title_hints: list[str]
     dieu_hints: list[str]
 
     search_query: str                    
@@ -27,6 +28,7 @@ class AgentState(TypedDict, total=False):
     grounding_score: float
     is_sufficient: bool
     verifier_feedback: str
+    query_changed: bool
     attempts: int
 
     answer: str
