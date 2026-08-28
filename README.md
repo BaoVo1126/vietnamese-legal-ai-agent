@@ -245,7 +245,8 @@ python scripts/run_eval.py --regression --diagnose-failures
 | `retry_rate` | How often retrieval self-corrects |
 | `avg_latency` | End-to-end response time |
 
-**Current MVP snapshot:** `pass_rate 0.90 · status_accuracy 1.00 · retrieval_recall 1.00 · citation_recall 0.88 · citation_precision 1.00 · stale_citation_rate 0.00 · retry_rate 0.20 · avg_latency 471 ms`
+<img width="445" height="256" alt="image" src="https://github.com/user-attachments/assets/7134bcda-e7cf-4215-addf-49da2c8713d2" />
+
 
 ## ✅ 15. Testing
 
