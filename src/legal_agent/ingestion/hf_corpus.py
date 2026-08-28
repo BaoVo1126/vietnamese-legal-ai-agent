@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -212,12 +213,14 @@ class HFLegalCorpusLoader:
                              record["label"])
                 continue
             candidate, text = resolved
+            merged = record
             if candidate["id"] != record["id"]:
-                logger.warning("%s: bản ghi ưu tiên (id=%s) rỗng nội dung, dùng bản dự "
-                               "phòng id=%s.", record["label"], record["id"],
+                logger.warning("%s: bản ghi ưu tiên (id=%s) rỗng nội dung, lấy nội dung "
+                               "từ bản dự phòng id=%s.", record["label"], record["id"],
                                candidate["id"])
+                merged = merge_metadata(record, candidate)
             path = out_dir / f"{_slug(record['label'])}.txt"
-            path.write_text(front_matter(candidate) + text, encoding="utf-8")
+            path.write_text(front_matter(merged) + text, encoding="utf-8")
             written.append(path)
             logger.info("Đã ghi %s (%d ký tự)", path.name, len(text))
         return written
@@ -235,6 +238,17 @@ class HFLegalCorpusLoader:
             logger.debug("%s: ứng viên id=%s chỉ có %d ký tự.",
                          record["label"], candidate["id"], len(text))
         return None
+
+
+def merge_metadata(preferred: dict, content_source: dict) -> dict:
+    merged = dict(preferred)
+    merged["source_id"] = content_source.get("id", merged.get("id"))
+    statuses = [preferred.get("tinh_trang_hieu_luc", ""),
+                content_source.get("tinh_trang_hieu_luc", "")]
+    merged["tinh_trang_hieu_luc"] = max(
+        (status for status in statuses if status),
+        key=lambda status: _STATUS_RANK.get(status, 9), default="")
+    return merged
 
 
 def front_matter(record: dict) -> str:
