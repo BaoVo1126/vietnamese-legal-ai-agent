@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+
 from ...agents.service import LegalAgentService
 from ...logging_config import get_logger
 from ..deps import get_agent_service
