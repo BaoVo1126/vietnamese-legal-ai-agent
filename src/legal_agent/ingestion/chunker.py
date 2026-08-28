@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from ..config import Settings, get_settings
 from ..domain.chunk import LegalChunk
 from ..domain.document import LegalDocumentMeta
