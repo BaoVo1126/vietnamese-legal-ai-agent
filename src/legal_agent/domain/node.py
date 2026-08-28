@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from collections.abc import Iterator
+
 from pydantic import BaseModel, Field
+
 from .enums import NODE_LEVEL_DEPTH, NodeLevel
 
 
@@ -61,6 +64,5 @@ class LegalNode(BaseModel):
 
     def char_count(self) -> int:
         return len(self.full_text())
-
 
 LegalNode.model_rebuild()
