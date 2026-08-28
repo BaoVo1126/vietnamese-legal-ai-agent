@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import re
 import unicodedata
 
@@ -67,12 +68,22 @@ class Citation(BaseModel):
     def parse_cited(cls, text: str) -> list[Citation]:
         citations: list[Citation] = []
         seen: set[tuple[str, str, str, str]] = set()
-        for match in _PARENTHESES_RE.finditer(text):
-            for citation in cls.parse_all(match.group(1)):
+        for span in cls._citation_spans(text):
+            for citation in cls.parse_all(span):
                 if citation.key not in seen:
                     seen.add(citation.key)
                     citations.append(citation)
         return citations
+
+    @staticmethod
+    def _citation_spans(text: str) -> list[str]:
+        """Các đoạn văn bản được coi là mang trích dẫn."""
+        spans = [match.group(1) for match in _PARENTHESES_RE.finditer(text)]
+        for match in _CITATION_CUE_RE.finditer(text):
+            tail = text[match.end():]
+            boundary = _CLAUSE_END_RE.search(tail)
+            spans.append(tail[: boundary.start()] if boundary else tail)
+        return spans
 
     @classmethod
     def parse_all(cls, text: str) -> list[Citation]:
@@ -82,16 +93,17 @@ class Citation(BaseModel):
         for anchor in _iter_document_anchors(text):
             window = text[max(cursor, anchor.start - 200): anchor.start]
             cursor = anchor.end
-            citation = cls(
-                doc_number=anchor.doc_number,
-                doc_title=anchor.doc_title or _extract_title(window, text, anchor.start),
-                dieu=_last(_DIEU_RE.findall(window)),
-                khoan=_last(_KHOAN_RE.findall(window)),
-                diem=_last(_DIEM_RE.findall(window)),
-            )
-            if citation.key not in seen:
-                seen.add(citation.key)
-                citations.append(citation)
+            title = anchor.doc_title or _extract_title(window, text, anchor.start)
+            khoan = _last(_KHOAN_RE.findall(window))
+            diem = _last(_DIEM_RE.findall(window))
+            dieu_numbers = _extract_dieu_numbers(window)
+            for dieu in dieu_numbers or [None]:
+                citation = cls(doc_number=anchor.doc_number, doc_title=title,
+                               dieu=dieu, khoan=khoan if len(dieu_numbers) <= 1 else None,
+                               diem=diem if len(dieu_numbers) <= 1 else None)
+                if citation.key not in seen:
+                    seen.add(citation.key)
+                    citations.append(citation)
         return citations
 
 
@@ -130,12 +142,53 @@ def _last(values: list[str]) -> str | None:
     return values[-1].strip() if values else None
 
 
+def _extract_dieu_numbers(window: str) -> list[str]:
+    enumerations = list(_DIEU_ENUMERATION_RE.finditer(window))
+    if enumerations:
+        span = enumerations[-1].group(0)
+        numbers = _NUMBER_RE.findall(span)
+        if _RANGE_JOINER_RE.search(span) and len(numbers) == 2:
+            return _expand_range(numbers[0], numbers[1])
+        return list(dict.fromkeys(numbers))
+    single = _last(_DIEU_RE.findall(window))
+    return [single] if single else []
+
+
+def _expand_range(start: str, end: str) -> list[str]:
+    if not (start.isdigit() and end.isdigit()):
+        return [start, end]
+    first, last = int(start), int(end)
+    if not 0 < last - first <= _MAX_RANGE_SPAN:
+        return [start, end]
+    return [str(number) for number in range(first, last + 1)]
+
+
 _PARENTHESES_RE = re.compile(r"\(([^()]{0,400})\)")
 _DOC_NUMBER_RE = re.compile(r"\b\d{1,4}/\d{4}/[A-ZĐ][A-ZĐ0-9\-/]*\b")
 _TITLED_DOC_RE = re.compile(r"Hiến pháp(?:\s+năm)?\s+(?:19|20)\d{2}", re.UNICODE)
-_DIEU_RE = re.compile(r"[Đđ]iều\s+(\d+[a-zđ]?)", re.UNICODE)
-_KHOAN_RE = re.compile(r"[Kk]hoản\s+(\d+[a-zđ]?)", re.UNICODE)
-_DIEM_RE = re.compile(r"[Đđ]iểm\s+([a-zđ]{1,2})\b", re.UNICODE)
+
+_DIEU_RE = re.compile(r"(?:[Đđ]iều|Đ\.?)\s*(\d+[a-zđ]?)\b", re.UNICODE)
+_KHOAN_RE = re.compile(r"(?:[Kk]hoản|K\.?)\s*(\d+[a-zđ]?)\b", re.UNICODE)
+_DIEM_RE = re.compile(r"(?:[Đđ]iểm|đ\.)\s*([a-zđ]{1,2})\b", re.UNICODE)
+
+_DIEU_ENUMERATION_RE = re.compile(
+    r"(?:[Đđ]iều|Đ\.?)\s*\d+[a-zđ]?"
+    r"(?:\s*(?:,|và|đến|tới)\s*(?:(?:[Đđ]iều|Đ\.?)\s*)?\d+[a-zđ]?)+",
+    re.UNICODE,
+)
+_RANGE_JOINER_RE = re.compile(r"\d+\s*(?:đến|tới)\s*(?:(?:[Đđ]iều|Đ\.?)\s*)?\d+", re.UNICODE)
+
+_CLAUSE_END_RE = re.compile(r"\.(?=\s|$)|[;\n()]", re.UNICODE)
+_NUMBER_RE = re.compile(r"\d+[a-zđ]?", re.UNICODE)
+
+_MAX_RANGE_SPAN = 20
+
+_CITATION_CUE_RE = re.compile(
+    r"(?:quy định tại|theo quy định của|căn cứ vào|căn cứ|theo|tại|xem)\s+"
+    r"(?=(?:điều|đ\.?|khoản|k\.?|điểm)\s*\d|(?:bộ luật|luật|nghị định|thông tư"
+    r"|pháp lệnh|nghị quyết|quyết định|hiến pháp))",
+    re.UNICODE | re.IGNORECASE,
+)
 _TITLE_STOPWORDS = (
     "số|đã|và|thì|là|của|này|đó|khi|do|được|có|hoặc|với|theo|tại|về|nêu|trên|nay|bị|hết"
 )
