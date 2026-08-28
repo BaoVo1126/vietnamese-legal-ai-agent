@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pytest
+
 from legal_agent.agents.service import LegalAgentService
 
 pytestmark = pytest.mark.slow
