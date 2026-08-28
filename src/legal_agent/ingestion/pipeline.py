@@ -3,6 +3,7 @@ import hashlib
 import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from ..config import Settings, get_settings
 from ..domain.chunk import LegalChunk
 from ..domain.document import LegalDocumentMeta
@@ -54,12 +55,24 @@ class IngestionPipeline:
                  vector_store: QdrantVectorStore | None = None,
                  graph_store: LegalGraphStore | None = None) -> None:
         self.settings = settings or get_settings()
-        self.parser = StructureAwareParser()
+        self.parser = StructureAwareParser(
+            relation_extractor=self._build_relation_extractor())
         self.chunk_builder = LegalChunkBuilder(self.settings)
         self.embedder = embedder or build_embedder(self.settings)
         self.vector_store = vector_store or QdrantVectorStore.from_settings(
             vector_size=self._vector_size(), settings=self.settings)
         self.graph_store = graph_store or build_graph_store(self.settings)
+
+    def _build_relation_extractor(self):
+        """Bộ khai thác quan hệ, kèm fallback LLM nếu cấu hình bật."""
+        from .relation_extractor import RelationExtractor
+
+        if not self.settings.kg_llm_fallback:
+            return RelationExtractor()
+        from ..llm.vllm_client import build_llm_client
+
+        logger.info("Bật fallback LLM cho khai thác quan hệ Knowledge Graph.")
+        return RelationExtractor(llm=build_llm_client(self.settings))
 
     def run(self, source_dir: Path | None = None, recreate: bool = True,
             use_cache: bool = True) -> IngestionResult:
