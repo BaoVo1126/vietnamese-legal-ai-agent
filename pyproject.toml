@@ -21,7 +21,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Heavy / infra-specific extras: install only on the machine that needs them.
 ml = ["sentence-transformers>=3.0", "FlagEmbedding>=1.3", "torch>=2.3"]
 nlp = ["underthesea>=6.8"]
 kg = ["neo4j>=5.23"]
@@ -45,19 +44,13 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-# Explicit rule set so local runs and CI always agree, regardless of ruff defaults.
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = [
-    # FastAPI's Depends()/Query() in argument defaults is the framework idiom.
     "B008",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Vietnamese gazette text really does use EN DASH as a heading separator, so the
-# "ambiguous character" warning is a false positive on these patterns.
 "src/legal_agent/ingestion/patterns.py" = ["RUF001"]
 "src/legal_agent/ingestion/metadata_extractor.py" = ["RUF001"]
-# EN DASH is intentional typography in the Vietnamese UI copy.
 "app/streamlit_app.py" = ["RUF001"]
-# Test doubles deliberately implement protocols with terse stubs.
 "tests/*" = ["B027"]
