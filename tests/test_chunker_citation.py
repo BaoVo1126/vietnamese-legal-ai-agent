@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from legal_agent.domain.citation import Citation
 from legal_agent.ingestion.chunker import LegalChunkBuilder
 
@@ -95,3 +96,65 @@ class TestCitationRoundTrip:
         citation = Citation(doc_number="91/2015/QH13", doc_title="Bộ luật Dân sự",
                             dieu="651", khoan="1", diem="a")
         assert Citation.parse_cited(f"Nội dung nào đó ({citation.render()}).") == [citation]
+
+
+class TestCitationVariants:
+    def _numbers(self, text: str) -> list[str]:
+        return [citation.render() for citation in Citation.parse_cited(text)]
+
+    def test_parenthesised_form(self):
+        assert self._numbers("Nội dung (Điều 17, Khoản 2, Luật Doanh nghiệp "
+                             "59/2020/QH14).") == [
+            "Điều 17, Khoản 2, Luật Doanh nghiệp 59/2020/QH14"]
+
+    def test_cue_theo_without_parentheses(self):
+        assert self._numbers("Theo Điều 12 Bộ luật Hình sự 100/2015/QH13, người từ đủ "
+                             "16 tuổi...") == ["Điều 12, Bộ luật Hình sự 100/2015/QH13"]
+
+    def test_cue_quy_dinh_tai_with_lowercase_components(self):
+        assert self._numbers("Được quy định tại khoản 2 Điều 20 Bộ luật Dân sự "
+                             "91/2015/QH13.") == [
+            "Điều 20, Khoản 2, Bộ luật Dân sự 91/2015/QH13"]
+
+    def test_abbreviated_form_with_dots(self):
+        """"Đ.12 K.2" - dấu chấm trong viết tắt không được cắt mất mệnh đề."""
+        assert self._numbers("Căn cứ Đ.12 K.2 Bộ luật Hình sự 100/2015/QH13.") == [
+            "Điều 12, Khoản 2, Bộ luật Hình sự 100/2015/QH13"]
+
+    def test_abbreviated_form_without_dots(self):
+        assert self._numbers("Theo Đ12 K2 Bộ luật Hình sự 100/2015/QH13.") == [
+            "Điều 12, Khoản 2, Bộ luật Hình sự 100/2015/QH13"]
+
+    def test_enumeration_with_va_yields_one_citation_per_article(self):
+        rendered = self._numbers("Theo Điều 12 và Điều 13 Bộ luật Hình sự "
+                                 "100/2015/QH13 thì...")
+        assert rendered == ["Điều 12, Bộ luật Hình sự 100/2015/QH13",
+                            "Điều 13, Bộ luật Hình sự 100/2015/QH13"]
+
+    def test_enumeration_with_commas(self):
+        rendered = self._numbers("Căn cứ Điều 12, 13 và 14 Bộ luật Hình sự "
+                                 "100/2015/QH13.")
+        assert [item.split(",")[0] for item in rendered] == ["Điều 12", "Điều 13",
+                                                             "Điều 14"]
+
+    def test_range_is_expanded(self):
+        rendered = self._numbers("Theo Điều 12 đến Điều 15 Bộ luật Hình sự "
+                                 "100/2015/QH13.")
+        assert [item.split(",")[0] for item in rendered] == ["Điều 12", "Điều 13",
+                                                             "Điều 14", "Điều 15"]
+
+    def test_absurdly_wide_range_keeps_only_the_endpoints(self):
+        """Khoảng quá rộng chỉ giữ hai đầu mút, tránh sinh hàng trăm trích dẫn."""
+        rendered = self._numbers("Theo Điều 1 đến Điều 200 Bộ luật Dân sự 91/2015/QH13.")
+        assert [item.split(",")[0] for item in rendered] == ["Điều 1", "Điều 200"]
+
+    def test_document_identified_only_by_title(self):
+        assert self._numbers("Theo Điều 69 Hiến pháp năm 2013, Quốc hội là...") == [
+            "Điều 69, Hiến pháp năm 2013"]
+
+    def test_number_quoted_inside_statutory_text_is_not_a_citation(self):
+        assert self._numbers("Nội dung: Luật này thay thế Luật Doanh nghiệp số "
+                             "68/2014/QH13.") == []
+
+    def test_answer_without_any_citation(self):
+        assert self._numbers("Doanh nghiệp được tự do kinh doanh.") == []
