@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from functools import lru_cache
+
 from ..agents.service import LegalAgentService
 from ..config import get_settings
 from ..logging_config import get_logger
