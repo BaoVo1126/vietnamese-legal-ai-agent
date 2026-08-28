@@ -1,5 +1,10 @@
 from __future__ import annotations
+
 from datetime import date
+from typing import ClassVar
+
+import pytest
+
 from legal_agent.domain.enums import DocumentType, EffectStatus, NodeLevel, RelationType
 from legal_agent.ingestion.parser import StructureAwareParser
 from legal_agent.ingestion.patterns import looks_like_dieu_heading, normalise_text
@@ -75,3 +80,109 @@ class TestRelations:
         assert len(guidance) == 1
         assert guidance[0].target_doc_id == "59-2020-QH14"
         assert guidance[0].target_dieu == "26"
+
+
+class TestDuplicateRecordMerge:
+    PREFERRED: ClassVar[dict] = {"label": "Luật Doanh nghiệp 2020", "id": "142847",
+                 "title": "Luật Doanh nghiệp", "so_ky_hieu": "59/2020/QH14",
+                 "tinh_trang_hieu_luc": "Còn hiệu lực", "field_of_law": "Doanh nghiệp"}
+    WITH_CONTENT: ClassVar[dict] = {"label": "Luật Doanh nghiệp 2020", "id": "142881",
+                    "title": "doanh nghiệp", "so_ky_hieu": "59/2020/QH14",
+                    "tinh_trang_hieu_luc": "Hết hiệu lực một phần",
+                    "field_of_law": "Doanh nghiệp"}
+
+    def test_title_comes_from_the_better_record(self):
+        from legal_agent.ingestion.hf_corpus import merge_metadata
+
+        merged = merge_metadata(self.PREFERRED, self.WITH_CONTENT)
+        assert merged["title"] == "Luật Doanh nghiệp"
+        assert merged["source_id"] == "142881"
+
+    def test_effect_status_takes_the_more_conservative_record(self):
+        from legal_agent.ingestion.hf_corpus import merge_metadata
+
+        merged = merge_metadata(self.PREFERRED, self.WITH_CONTENT)
+        assert merged["tinh_trang_hieu_luc"] == "Hết hiệu lực một phần"
+
+    def test_front_matter_carries_the_merged_values(self):
+        from legal_agent.ingestion.hf_corpus import front_matter, merge_metadata
+
+        rendered = front_matter(merge_metadata(self.PREFERRED, self.WITH_CONTENT))
+        assert "title: Luật Doanh nghiệp" in rendered
+        assert "effect_status: het_hieu_luc_mot_phan" in rendered
+
+
+class TestLocalDocumentIngestion:
+    HTML = (
+        "<html><body>"
+        "<p>QUỐC HỘI</p><p>Luật số: 31/2024/QH15</p>"
+        "<p>LUẬT</p><p>ĐẤT ĐAI</p>"
+        "<p>Chương I</p><p>QUY ĐỊNH CHUNG</p>"
+        "<p>Điều 1. Phạm vi điều chỉnh</p>"
+        "<p>Luật này quy định về chế độ sở hữu đất đai, quyền hạn và trách nhiệm của "
+        "Nhà nước đại diện chủ sở hữu toàn dân về đất đai và thống nhất quản lý về đất "
+        "đai, chế độ quản lý và sử dụng đất đai, quyền và nghĩa vụ của công dân, người "
+        "sử dụng đất đối với đất đai thuộc lãnh thổ của nước Cộng hòa xã hội chủ nghĩa "
+        "Việt Nam.</p>"
+        "<p>Điều 2. Đối tượng áp dụng</p>"
+        "<p>1. Cơ quan nhà nước thực hiện quyền hạn và trách nhiệm đại diện chủ sở hữu "
+        "toàn dân về đất đai, thực hiện nhiệm vụ thống nhất quản lý nhà nước về đất đai.</p>"
+        "<p>2. Người sử dụng đất theo quy định của Luật này.</p>"
+        "</body></html>"
+    )
+
+    def _spec(self, **overrides):
+        from legal_agent.ingestion.local_loader import LocalDocumentSpec
+
+        values = dict(label="Luật Đất đai 2024", title="Luật Đất đai",
+                      doc_number="31/2024/QH15", effect_status="Còn hiệu lực",
+                      effective_date="01/08/2024", field_of_law="Đất đai")
+        values.update(overrides)
+        return LocalDocumentSpec(**values)
+
+    def test_html_document_is_ingested_and_parsed(self, tmp_path):
+        from legal_agent.ingestion.local_loader import ingest_local_document
+        from legal_agent.ingestion.parser import StructureAwareParser
+
+        source = tmp_path / "dat-dai.html"
+        source.write_text(self.HTML, encoding="utf-8")
+        target = ingest_local_document(source, self._spec(), tmp_path / "raw")
+
+        parsed = StructureAwareParser().parse(target.read_text(encoding="utf-8"))
+        assert parsed.meta.doc_number == "31/2024/QH15"
+        assert parsed.meta.title == "Luật Đất đai"
+        assert parsed.meta.effect_status is EffectStatus.CON_HIEU_LUC
+        assert [node.number for node in parsed.iter_dieu()] == ["1", "2"]
+
+    def test_invalid_effect_status_is_rejected(self, tmp_path):
+        from legal_agent.ingestion.local_loader import ingest_local_document
+
+        source = tmp_path / "x.html"
+        source.write_text(self.HTML, encoding="utf-8")
+        with pytest.raises(ValueError, match="Trạng thái hiệu lực"):
+            ingest_local_document(source, self._spec(effect_status="chắc là còn"),
+                                  tmp_path / "raw")
+
+    def test_document_without_a_title_is_rejected(self, tmp_path):
+        from legal_agent.ingestion.local_loader import ingest_local_document
+
+        source = tmp_path / "x.html"
+        source.write_text(self.HTML, encoding="utf-8")
+        with pytest.raises(ValueError, match="tiêu đề"):
+            ingest_local_document(source, self._spec(title="  "), tmp_path / "raw")
+
+    def test_too_short_document_is_rejected(self, tmp_path):
+        from legal_agent.ingestion.local_loader import ingest_local_document
+
+        source = tmp_path / "x.html"
+        source.write_text("<html><body><p>Ngắn quá.</p></body></html>", encoding="utf-8")
+        with pytest.raises(ValueError, match="quá ngắn"):
+            ingest_local_document(source, self._spec(), tmp_path / "raw")
+
+    def test_unsupported_format_is_rejected(self, tmp_path):
+        from legal_agent.ingestion.local_loader import extract_text
+
+        source = tmp_path / "x.docx"
+        source.write_bytes(b"binary")
+        with pytest.raises(ValueError, match="Chưa hỗ trợ"):
+            extract_text(source)
