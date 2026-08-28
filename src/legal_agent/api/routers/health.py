@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends
+
 from ...agents.service import LegalAgentService
 from ...config import get_settings
 from ..deps import get_agent_service
